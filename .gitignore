@@ -3,6 +3,7 @@
 .vscode/
 .python-version
 uv.lock
+LangChain1.0/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

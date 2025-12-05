@@ -8,12 +8,12 @@ import os
 async def main():
     client = MultiServerMCPClient(  
         {
-            "math": {
-                "transport": "stdio",  # Local subprocess communication
-                "command": "python",
-                # Absolute path to your math_server.py file
-                "args": ["/data/vepfs/users/fa.fu/projects/agents/robota/tests/langgraph/langchain_mcp_demo1_mathserver.py"],
-            },
+            # "math": {
+            #     "transport": "stdio",  # Local subprocess communication
+            #     "command": "python",
+            #     # Absolute path to your math_server.py file
+            #     "args": ["/home/drobotics/projects/robota/tests/langgraph/langchain_mcp_demo1_mathserver.py"],
+            # },
             "weather": {
                 "transport": "streamable_http",  # HTTP-based remote server
                 # Ensure you start your weather server on port 8000
@@ -32,18 +32,18 @@ async def main():
         model,
         tools  
     )
-    math_response = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": "what's (3 + 5) x 12?"}]}
-    )
+    # math_response = await agent.ainvoke(
+    #     {"messages": [{"role": "user", "content": "what's (3 + 5) x 12?"}]}
+    # )
     weather_response = await agent.ainvoke(
         {"messages": [{"role": "user", "content": "what is the weather in nyc?"}]}
     )
     
-    print("Math response:", math_response)
-    for m in math_response["messages"]:
-        m.pretty_print()
-        print('*'*100)
-    print('='*100)
+    # print("Math response:", math_response)
+    # for m in math_response["messages"]:
+    #     m.pretty_print()
+    #     print('*'*100)
+    # print('='*100)
     print("Weather response:", weather_response)
     for m in weather_response["messages"]:
         m.pretty_print()

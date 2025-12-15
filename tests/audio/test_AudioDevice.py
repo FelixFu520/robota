@@ -226,10 +226,21 @@ class AudioRecorderPlayer:
             # 定期显示状态
             while self.is_running:
                 time.sleep(5)
+                
+                # 获取AEC统计信息
+                aec_stats = ""
+                if self.device.aec is not None:
+                    stats = self.device.aec.get_stats()
+                    aec_stats = (f"| AEC: 延迟={stats.get('estimated_delay', 0)}样本, "
+                               f"双讲={'是' if stats.get('is_double_talk', False) else '否'}, "
+                               f"近端语音={'是' if stats.get('has_near_speech', False) else '否'}, "
+                               f"远端语音={'是' if stats.get('has_far_speech', False) else '否'}, "
+                               f"抑制率={stats.get('echo_reduction_ratio', 0):.1f}%")
+                
                 print(f"\r[状态] 播放队列: {self.device.get_playback_queue_size()}, "
                       f"录音队列: {self.device.get_recording_queue_size()}, "
                       f"已播放: {self.total_played_chunks} chunks, "
-                      f"已保存: {self.total_recorded_files} 个文件", end='')
+                      f"已保存: {self.total_recorded_files} 个文件 {aec_stats}", end='')
         except KeyboardInterrupt:
             print("\n\n用户中断")
         finally:
@@ -286,11 +297,13 @@ def main():
     else:
         # 调整AEC参数
         if device.aec:
+            from collections import deque
             device.aec.suppression_factor = max(0.0, min(1.0, args.aec_suppression))
             device.aec.filter_length = args.aec_filter_length
             device.aec.noise_gate_threshold = args.aec_noise_gate
             device.aec.filter_coeffs = np.zeros(args.aec_filter_length, dtype=np.float32)
-            device.aec.reference_buffer = np.zeros(args.aec_filter_length * 3, dtype=np.float32)
+            device.aec.reference_buffer_size = args.aec_filter_length * 4
+            device.aec.reference_buffer = deque(maxlen=device.aec.reference_buffer_size)
             
             print(f"\n✓ 智能回声消除已启用 (自适应模式)")
             print(f"  - 基础抑制因子: {device.aec.suppression_factor:.2f}")

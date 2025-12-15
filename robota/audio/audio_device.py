@@ -2,12 +2,13 @@ import pyaudio
 import numpy as np
 import queue
 import asyncio
+from collections import deque
 
 from robota.utils.logging import default_logger
 
 
 class AudioEchoCancellation:
-    """高级回声消除实现 - 基于NLMS自适应滤波器"""
+    """改进的回声消除实现 - 基于双讲检测的NLMS + 多重抑制"""
     
     def __init__(self, filter_length=512, step_size=0.01, noise_gate_threshold=500, enable=True):
         """
@@ -27,11 +28,32 @@ class AudioEchoCancellation:
         # 自适应滤波器系数(NLMS)
         self.filter_coeffs = np.zeros(filter_length, dtype=np.float32)
         
-        # 参考信号缓冲区(播放的音频) - 使用更大的缓冲区来处理延迟
-        self.reference_buffer = np.zeros(filter_length * 3, dtype=np.float32)
+        # 参考信号缓冲区(播放的音频) - 使用deque实现循环缓冲
+        self.reference_buffer_size = filter_length * 4
+        self.reference_buffer = deque(maxlen=self.reference_buffer_size)
+        
+        # 延迟估计相关
+        self.estimated_delay = 0
+        self.delay_search_range = 512
+        self.delay_update_counter = 0
+        self.delay_update_interval = 100  # 每N帧更新一次延迟估计
+        
+        # 双讲检测
+        self.double_talk_threshold = 0.5
+        self.is_double_talk = False
+        
+        # VAD (语音活动检测)
+        self.vad_threshold = 0.02
+        self.has_near_speech = False  # 近端语音(用户)
+        self.has_far_speech = False   # 远端语音(播放)
+        
+        # 能量平滑
+        self.near_energy_smooth = 0.0
+        self.far_energy_smooth = 0.0
+        self.energy_alpha = 0.8
         
         # 平滑因子用于归一化
-        self.epsilon = 1e-6
+        self.epsilon = 1e-8
         
         # 双重抑制：频域和时域
         self.enable_spectral_subtraction = True
@@ -40,8 +62,9 @@ class AudioEchoCancellation:
         self.total_processed = 0
         self.echo_reduction_ratio = 0.0
         
-        # 回声抑制因子 - 仅用于纯回声情况
-        self.suppression_factor = 0.5  # 当检测到纯回声时的抑制因子
+        # 回声抑制因子
+        self.suppression_factor = 0.5
+        self.residual_suppression = 0.3  # 残留回声抑制
         
     def add_playback_reference(self, audio_data):
         """
@@ -58,83 +81,215 @@ class AudioEchoCancellation:
         # 归一化到 [-1, 1]
         audio_array = audio_array / 32768.0
         
-        # 滚动更新参考缓冲区 - 保持更长的历史
-        buffer_len = len(self.reference_buffer)
-        if len(audio_array) >= buffer_len:
-            self.reference_buffer = audio_array[-buffer_len:]
-        else:
-            self.reference_buffer = np.roll(self.reference_buffer, -len(audio_array))
-            self.reference_buffer[-len(audio_array):] = audio_array
+        # 添加到循环缓冲区
+        self.reference_buffer.extend(audio_array)
+    
+    def _estimate_delay(self, recorded, reference):
+        """
+        使用互相关估计延迟
+        
+        Returns:
+            估计的延迟(采样点数)
+        """
+        if len(reference) < self.delay_search_range * 2:
+            return 0
+        
+        # 取最后的一段参考信号用于互相关
+        ref_segment = reference[-self.delay_search_range*2:]
+        
+        # 计算互相关
+        if len(recorded) < len(ref_segment):
+            return 0
+            
+        correlation = np.correlate(recorded, ref_segment, mode='valid')
+        
+        # 找到最大相关的位置
+        if len(correlation) > 0:
+            delay = np.argmax(np.abs(correlation))
+            return min(delay, self.delay_search_range)
+        return 0
+    
+    def _detect_double_talk(self, recorded_energy, echo_estimate_energy):
+        """
+        双讲检测 - 判断是否同时存在真实语音和回声
+        
+        Returns:
+            True: 双讲状态(有真实语音), False: 仅有回声
+        """
+        if echo_estimate_energy < self.epsilon:
+            return True  # 没有回声，认为是真实语音
+        
+        # 计算能量比
+        ratio = recorded_energy / (echo_estimate_energy + self.epsilon)
+        
+        # 如果录音能量显著大于回声估计,说明有真实语音
+        return ratio > (1.0 + self.double_talk_threshold)
+    
+    def _voice_activity_detection(self, audio, reference):
+        """
+        语音活动检测
+        
+        Updates:
+            self.has_near_speech: 是否有近端语音(用户说话)
+            self.has_far_speech: 是否有远端语音(播放音频)
+        """
+        # 计算近端能量(录音)
+        near_energy = np.mean(audio ** 2)
+        self.near_energy_smooth = (self.energy_alpha * self.near_energy_smooth + 
+                                   (1 - self.energy_alpha) * near_energy)
+        
+        # 计算远端能量(播放)
+        far_energy = np.mean(reference ** 2)
+        self.far_energy_smooth = (self.energy_alpha * self.far_energy_smooth + 
+                                  (1 - self.energy_alpha) * far_energy)
+        
+        # VAD判断
+        self.has_near_speech = self.near_energy_smooth > self.vad_threshold
+        self.has_far_speech = self.far_energy_smooth > self.vad_threshold * 0.5
     
     def _nlms_filter(self, recorded, reference):
         """
-        NLMS (Normalized Least Mean Squares) 自适应滤波
+        改进的NLMS (Normalized Least Mean Squares) 自适应滤波
         
         Args:
             recorded: 录制的音频样本
             reference: 参考信号(播放的音频)
             
         Returns:
-            处理后的音频
+            (cleaned_signal, echo_estimate)
         """
         output = np.zeros_like(recorded)
+        echo_estimates = np.zeros_like(recorded)
+        
+        # 确保参考信号足够长
+        if len(reference) < self.filter_length:
+            return recorded, np.zeros_like(recorded)
+        
+        # 根据延迟估计对齐参考信号
+        if self.estimated_delay > 0 and len(reference) > self.filter_length + self.estimated_delay:
+            ref_aligned = reference[-(self.filter_length + self.estimated_delay):-self.estimated_delay]
+        else:
+            ref_aligned = reference[-self.filter_length:]
         
         for i in range(len(recorded)):
             # 获取当前的参考信号窗口
             if i < self.filter_length:
-                ref_window = np.concatenate([
-                    self.reference_buffer[-(self.filter_length-i):],
-                    reference[:i]
-                ])
+                if len(ref_aligned) >= self.filter_length - i:
+                    ref_window = np.concatenate([
+                        ref_aligned[-(self.filter_length-i):],
+                        reference[:i] if i > 0 else np.array([])
+                    ])
+                else:
+                    ref_window = ref_aligned
+                    if len(ref_window) < self.filter_length:
+                        ref_window = np.pad(ref_window, (self.filter_length - len(ref_window), 0), 'constant')
             else:
-                ref_window = reference[i-self.filter_length:i]
+                if len(reference) >= i:
+                    ref_window = reference[i-self.filter_length:i]
+                else:
+                    ref_window = ref_aligned
+            
+            if len(ref_window) < self.filter_length:
+                output[i] = recorded[i]
+                echo_estimates[i] = 0
+                continue
             
             # 估计回声
             echo_estimate = np.dot(self.filter_coeffs, ref_window)
+            echo_estimates[i] = echo_estimate
             
-            # 计算误差(期望的输出)
+            # 计算误差(录音减去回声估计 = 干净信号)
             error = recorded[i] - echo_estimate
             output[i] = error
             
-            # 更新滤波器系数(NLMS)
-            power = np.dot(ref_window, ref_window) + self.epsilon
-            self.filter_coeffs += (self.step_size / power) * error * ref_window
+            # 双讲检测 - 只在非双讲时更新滤波器系数
+            if not self.is_double_talk:
+                # NLMS更新
+                power = np.dot(ref_window, ref_window) + self.epsilon
+                self.filter_coeffs += (self.step_size / power) * error * ref_window
         
-        return output
+        return output, echo_estimates
     
-    def _spectral_subtraction(self, audio):
+    def _residual_echo_suppression(self, audio, echo_estimate):
         """
-        频域谱减法进一步抑制残留回声
+        残留回声抑制 - 使用Wiener滤波思想
+        
+        Args:
+            audio: NLMS输出的信号
+            echo_estimate: 回声估计
+        
+        Returns:
+            进一步处理的信号
+        """
+        # 计算残留回声的估计
+        residual_estimate = echo_estimate * self.residual_suppression
+        
+        # 使用软抑制
+        audio_energy = np.abs(audio)
+        residual_energy = np.abs(residual_estimate)
+        
+        # 计算增益
+        gain = np.maximum(
+            (audio_energy - residual_energy) / (audio_energy + self.epsilon),
+            0.1  # 最小增益,避免完全静音
+        )
+        
+        return audio * gain
+    
+    def _spectral_subtraction(self, audio, chunk_size=512):
+        """
+        改进的频域谱减法进一步抑制残留回声
         
         Args:
             audio: 时域音频信号
+            chunk_size: FFT窗口大小
             
         Returns:
             处理后的音频
         """
-        if len(audio) < 256:
+        if len(audio) < chunk_size:
             return audio
         
-        # FFT
-        fft_data = np.fft.rfft(audio)
-        magnitude = np.abs(fft_data)
-        phase = np.angle(fft_data)
+        # 分帧处理
+        num_chunks = len(audio) // chunk_size
+        output = np.zeros_like(audio)
         
-        # 估计噪声/回声幅度(使用最小值统计)
-        noise_estimate = np.percentile(magnitude, 20)
+        for i in range(num_chunks):
+            start = i * chunk_size
+            end = start + chunk_size
+            chunk = audio[start:end]
+            
+            # FFT
+            fft_data = np.fft.rfft(chunk)
+            magnitude = np.abs(fft_data)
+            phase = np.angle(fft_data)
+            
+            # 自适应噪声估计
+            noise_floor = np.percentile(magnitude, 10)
+            
+            # Over-subtraction with spectral floor
+            alpha = 2.0  # over-subtraction factor
+            beta = 0.02  # spectral floor
+            magnitude_cleaned = np.maximum(
+                magnitude - alpha * noise_floor,
+                beta * magnitude
+            )
+            
+            # 重建
+            fft_cleaned = magnitude_cleaned * np.exp(1j * phase)
+            chunk_cleaned = np.fft.irfft(fft_cleaned, chunk_size)
+            
+            output[start:end] = chunk_cleaned
         
-        # 谱减法
-        magnitude_cleaned = np.maximum(magnitude - noise_estimate * 1.5, magnitude * 0.1)
+        # 处理剩余部分
+        if num_chunks * chunk_size < len(audio):
+            output[num_chunks * chunk_size:] = audio[num_chunks * chunk_size:]
         
-        # 重建信号
-        fft_cleaned = magnitude_cleaned * np.exp(1j * phase)
-        audio_cleaned = np.fft.irfft(fft_cleaned, len(audio))
-        
-        return audio_cleaned
+        return output
     
     def _apply_noise_gate(self, audio, threshold):
         """
-        应用噪声门限
+        改进的噪声门 - 使用平滑的gain曲线
         
         Args:
             audio: 音频信号
@@ -147,17 +302,16 @@ class AudioEchoCancellation:
         energy = np.abs(audio)
         
         # 平滑能量曲线
-        window_size = 100  # 增加窗口大小以更好地抑制瞬态噪声
+        window_size = 50
         if len(energy) >= window_size:
-            energy_smoothed = np.convolve(energy, np.ones(window_size)/window_size, mode='same')
+            # 使用汉明窗进行平滑
+            kernel = np.hamming(window_size) / np.sum(np.hamming(window_size))
+            energy_smoothed = np.convolve(energy, kernel, mode='same')
         else:
             energy_smoothed = energy
         
-        # 应用更强的门限
-        gate = (energy_smoothed > threshold).astype(np.float32)
-        
-        # 平滑门限曲线避免突变,但使用更强的衰减
-        gate = np.minimum(gate * 1.5, 1.0)
+        # 软门限 - 使用sigmoid函数实现平滑过渡
+        gate = 1.0 / (1.0 + np.exp(-10 * (energy_smoothed - threshold)))
         
         return audio * gate
     
@@ -183,63 +337,80 @@ class AudioEchoCancellation:
         original_energy = np.sum(recorded_normalized ** 2)
         
         # 如果参考缓冲区还没有数据,直接返回
-        if np.sum(np.abs(self.reference_buffer)) < self.epsilon:
+        if len(self.reference_buffer) < self.filter_length:
             return audio_data
         
-        # 步骤1: NLMS自适应滤波 - 估计回声
-        echo_estimate_full = self._nlms_filter(recorded_normalized, self.reference_buffer[:self.filter_length])
+        # 获取参考信号数组
+        reference = np.array(self.reference_buffer, dtype=np.float32)
         
-        # 计算回声能量和录音能量
-        echo_energy = np.sum(echo_estimate_full ** 2)
+        # VAD检测
+        self._voice_activity_detection(recorded_normalized, reference[-self.filter_length:])
         
-        # 步骤2: 智能抑制 - 根据回声和录音的能量比例决定抑制程度
-        ref_energy = np.sum(self.reference_buffer[:self.filter_length] ** 2)
+        # 定期更新延迟估计
+        self.delay_update_counter += 1
+        if self.delay_update_counter >= self.delay_update_interval:
+            self.delay_update_counter = 0
+            if self.has_far_speech and len(reference) >= self.delay_search_range * 2:
+                self.estimated_delay = self._estimate_delay(
+                    recorded_normalized, 
+                    reference[-self.delay_search_range*2:]
+                )
         
-        if ref_energy > self.epsilon and original_energy > self.epsilon:
-            # 计算回声占比
-            echo_ratio = echo_energy / original_energy
-            
-            # 如果回声占比很高(>0.7)，说明主要是回声，进行强抑制
-            # 如果回声占比低(<0.3)，说明有真实语音，轻度抑制
-            if echo_ratio > 0.7:
-                # 主要是回声，使用强抑制
-                cleaned = echo_estimate_full * self.suppression_factor
-            elif echo_ratio > 0.3:
-                # 混合信号，根据比例调整抑制
-                adaptive_factor = self.suppression_factor + (1.0 - self.suppression_factor) * (1.0 - echo_ratio)
-                cleaned = echo_estimate_full * adaptive_factor
-            else:
-                # 主要是真实语音，只做轻微处理
-                cleaned = recorded_normalized - (echo_estimate_full * 0.5)
-        else:
-            # 没有参考信号或录音信号很弱，直接返回
-            cleaned = recorded_normalized
+        # 步骤1: NLMS自适应滤波
+        cleaned, echo_estimate = self._nlms_filter(recorded_normalized, reference)
         
-        # 步骤3: 频域谱减法(可选) - 仅在检测到明显回声时使用
-        if self.enable_spectral_subtraction and len(cleaned) >= 256 and ref_energy > self.epsilon * 100:
-            cleaned = self._spectral_subtraction(cleaned)
-        
-        # 步骤4: 噪声门限 - 使用更低的门限避免过度抑制
-        cleaned = self._apply_noise_gate(cleaned, self.noise_gate_threshold / 32768.0 * 0.3)
-        
-        # 计算回声抑制比率
+        # 计算回声能量
+        echo_energy = np.sum(echo_estimate ** 2)
         cleaned_energy = np.sum(cleaned ** 2)
-        if original_energy > self.epsilon:
-            reduction = 1.0 - (cleaned_energy / original_energy)
-            self.echo_reduction_ratio = 0.95 * self.echo_reduction_ratio + 0.05 * reduction
         
-        # 限制幅度并转换回int16
-        cleaned = np.clip(cleaned * 32768.0, -32767, 32767)
+        # 双讲检测
+        self.is_double_talk = self._detect_double_talk(original_energy, echo_energy)
+        
+        # 步骤2: 根据场景选择处理策略
+        if not self.has_far_speech:
+            # 没有播放,直接使用录音
+            output = recorded_normalized
+        elif not self.has_near_speech and self.has_far_speech:
+            # 只有播放没有语音,强力抑制
+            output = cleaned * 0.1
+        elif self.is_double_talk:
+            # 双讲状态,保守处理以保留语音
+            output = cleaned
+        else:
+            # 只有回声,正常处理
+            # 步骤3: 残留回声抑制
+            output = self._residual_echo_suppression(cleaned, echo_estimate)
+            
+            # 步骤4: 频域谱减法(仅在有明显回声时)
+            if self.enable_spectral_subtraction and len(output) >= 256:
+                ref_energy = np.sum(reference[-self.filter_length:] ** 2)
+                if ref_energy > self.epsilon * 100:
+                    output = self._spectral_subtraction(output)
+        
+        # 步骤5: 噪声门
+        output = self._apply_noise_gate(output, self.noise_gate_threshold / 32768.0)
+        
+        # 更新统计
+        output_energy = np.sum(output ** 2)
+        if original_energy > self.epsilon:
+            reduction = 1.0 - (output_energy / original_energy)
+            self.echo_reduction_ratio = 0.95 * self.echo_reduction_ratio + 0.05 * reduction
         
         self.total_processed += 1
         
-        return cleaned.astype(np.int16).tobytes()
+        # 转换回int16
+        output = np.clip(output * 32768.0, -32767, 32767)
+        return output.astype(np.int16).tobytes()
     
     def get_stats(self):
         """获取统计信息"""
         return {
             'total_processed': self.total_processed,
-            'echo_reduction_ratio': self.echo_reduction_ratio * 100
+            'echo_reduction_ratio': self.echo_reduction_ratio * 100,
+            'estimated_delay': self.estimated_delay,
+            'is_double_talk': self.is_double_talk,
+            'has_near_speech': self.has_near_speech,
+            'has_far_speech': self.has_far_speech,
         }
 
 

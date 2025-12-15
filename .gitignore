@@ -1,4 +1,6 @@
 # Custom files
+.robota
+*.wav
 .venv/
 .vscode/
 .python-version

@@ -161,8 +161,8 @@ class RequestBuilder:
         return {
             "X-Api-Resource-Id": "volc.bigasr.sauc.duration",
             "X-Api-Request-Id": reqid,
-            "X-Api-Access-Key": os.getenv("VOLCENGINE_ASR_ACCESS_KEY"),
-            "X-Api-App-Key": os.getenv("VOLCENGINE_ASR_APP_KEY")
+            "X-Api-Access-Key": 5919896644,
+            "X-Api-App-Key": 'G-o4lEbyzOv9F6cLu9jYhkrOegOjorqU'
         }
 
     @staticmethod
@@ -472,7 +472,6 @@ class AsrWsClient:
         finally:
             if self.conn:
                 await self.conn.close()
-
 
 
 

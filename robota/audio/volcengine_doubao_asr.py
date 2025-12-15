@@ -1,7 +1,3 @@
-"""
-ASR 语音识别, https://www.volcengine.com/docs/6561/1354869?lang=zh  
-"""
-
 import asyncio
 import aiohttp
 import json
@@ -39,6 +35,25 @@ class SerializationType:
 
 class CompressionType:
     GZIP = 0b0001
+
+
+class Config:
+    def __init__(self):
+        # 填入控制台获取的app id和access token
+        self.auth = {
+            "app_key": "5919896644",
+            "access_key": "G-o4lEbyzOv9F6cLu9jYhkrOegOjorqU"
+        }
+
+    @property
+    def app_key(self) -> str:
+        return self.auth["app_key"]
+
+    @property
+    def access_key(self) -> str:
+        return self.auth["access_key"]
+
+config = Config()
 
 class CommonUtils:
     @staticmethod
@@ -161,8 +176,8 @@ class RequestBuilder:
         return {
             "X-Api-Resource-Id": "volc.bigasr.sauc.duration",
             "X-Api-Request-Id": reqid,
-            "X-Api-Access-Key": 5919896644,
-            "X-Api-App-Key": 'G-o4lEbyzOv9F6cLu9jYhkrOegOjorqU'
+            "X-Api-Access-Key": config.access_key,
+            "X-Api-App-Key": config.app_key
         }
 
     @staticmethod
@@ -188,7 +203,7 @@ class RequestBuilder:
                 "enable_ddc": True,
                 "show_utterances": True,
                 "enable_nonstream": True,
-                "end_window_size": 800, # 检测到800ms静音后触发断句
+                "end_window_size": 800, # 检测到400ms静音后触发断句
                 "force_to_speech_time": 1,
                 "result_type": "single"
 

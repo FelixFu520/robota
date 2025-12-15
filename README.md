@@ -1,4 +1,8 @@
 # RobotA
+```
+安装portaudio19-dev
+sudo apt-get install portaudio19-dev
+```
 Robot Agent Built with ROS 2 + MCP + LangChain 1.0
 ## Prerequisites
 - System: Ubuntu 22.04-desktop

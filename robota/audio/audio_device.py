@@ -527,6 +527,26 @@ class AudioDevice:
             # 从队列获取要播放的数据
             data = self.playback_queue.get_nowait()
             
+            # 确保数据大小匹配
+            required_bytes = frame_count * self.channels * 2  # 2 bytes per sample (int16)
+            if len(data) < required_bytes:
+                # 数据不够,填充静音
+                data = data + b'\x00' * (required_bytes - len(data))
+            elif len(data) > required_bytes:
+                # 数据过多,截断并把剩余部分放回队列
+                remaining = data[required_bytes:]
+                data = data[:required_bytes]
+                # 把剩余数据放回队列前面(需要优先播放)
+                # 注意:这里简单处理,实际可能需要使用优先队列
+                temp_queue = queue.Queue()
+                temp_queue.put(remaining)
+                while not self.playback_queue.empty():
+                    try:
+                        temp_queue.put(self.playback_queue.get_nowait())
+                    except queue.Empty:
+                        break
+                self.playback_queue = temp_queue
+            
             # 添加到回声消除器的参考缓冲(如果启用)
             if self.aec is not None:
                 self.aec.add_playback_reference(data)

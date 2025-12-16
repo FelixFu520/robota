@@ -167,11 +167,24 @@ async def main():
 
             # Receive audio data
             audio_data = bytearray()
+            pcm_buffer = bytearray()  # 用于累积PCM数据
+            playback_started = False  # 是否已开始播放
+            min_buffer_size = audio_device.chunk_size * 2 * 10 if audio_device else 0  # 最小缓冲大小(约0.64秒@16kHz)
+            
             while True:
                 msg = await receive_message(websocket)
 
                 if msg.type == MsgType.FullServerResponse:
                     if msg.event == EventType.SessionFinished:
+                        # 会话结束,播放剩余缓冲数据
+                        if audio_device and len(pcm_buffer) > 0:
+                            logger.info(f"会话结束,播放剩余 {len(pcm_buffer)} bytes")
+                            chunk_size = audio_device.chunk_size * 2
+                            for j in range(0, len(pcm_buffer), chunk_size):
+                                chunk = bytes(pcm_buffer[j:j+chunk_size])  # 转换为bytes
+                                audio_device.put_playback_data(chunk)
+                            pcm_buffer.clear()
+                            playback_started = True
                         break
                 elif msg.type == MsgType.AudioOnlyServer:
                     if not audio_received and len(msg.payload) > 0:
@@ -180,32 +193,60 @@ async def main():
                     # 先收集音频数据
                     audio_data.extend(msg.payload)
                     
-                    # 实时播放音频片段
+                    # 实时播放音频片段(使用缓冲策略)
                     if audio_device and msg.payload:
                         try:
                             if args.encoding == "mp3":
                                 # 将MP3转换为PCM格式
                                 pcm_data = convert_mp3_to_pcm(msg.payload, args.sample_rate)
                                 if pcm_data:
-                                    # 将PCM数据分块放入播放队列
-                                    chunk_size = audio_device.chunk_size * 2  # 2 bytes per sample
-                                    chunks_added = 0
-                                    for j in range(0, len(pcm_data), chunk_size):
-                                        chunk = pcm_data[j:j+chunk_size]
-                                        audio_device.put_playback_data(chunk)
-                                        chunks_added += 1
-                                    logger.info(f"播放音频片段: {len(pcm_data)} bytes, 分为 {chunks_added} 个块, 队列大小: {audio_device.get_playback_queue_size()}")
+                                    # 先累积到缓冲区
+                                    pcm_buffer.extend(pcm_data)
+                                    
+                                    # 如果还没开始播放,检查缓冲是否足够
+                                    if not playback_started:
+                                        if len(pcm_buffer) >= min_buffer_size:
+                                            logger.info(f"缓冲已满({len(pcm_buffer)} bytes),开始播放")
+                                            playback_started = True
+                                    
+                                    # 如果已开始播放或缓冲已满,将数据放入播放队列
+                                    if playback_started:
+                                        chunk_size = audio_device.chunk_size * 2
+                                        chunks_added = 0
+                                        # 只处理完整的chunk,保留不完整的部分
+                                        bytes_to_process = (len(pcm_buffer) // chunk_size) * chunk_size
+                                        if bytes_to_process > 0:
+                                            for j in range(0, bytes_to_process, chunk_size):
+                                                chunk = bytes(pcm_buffer[j:j+chunk_size])  # 转换为bytes
+                                                audio_device.put_playback_data(chunk)
+                                                chunks_added += 1
+                                            logger.info(f"添加音频块: {bytes_to_process} bytes, {chunks_added}块, 队列: {audio_device.get_playback_queue_size()}")
+                                            # 保留未处理的数据
+                                            pcm_buffer = pcm_buffer[bytes_to_process:]
                                 else:
                                     logger.warning(f"MP3转PCM失败,跳过该片段")
                             elif args.encoding == "pcm":
-                                # PCM格式直接播放
-                                chunk_size = audio_device.chunk_size * 2
-                                chunks_added = 0
-                                for j in range(0, len(msg.payload), chunk_size):
-                                    chunk = msg.payload[j:j+chunk_size]
-                                    audio_device.put_playback_data(chunk)
-                                    chunks_added += 1
-                                logger.info(f"播放音频片段: {len(msg.payload)} bytes, 分为 {chunks_added} 个块, 队列大小: {audio_device.get_playback_queue_size()}")
+                                # PCM格式也使用缓冲策略
+                                pcm_buffer.extend(msg.payload)
+                                
+                                if not playback_started:
+                                    if len(pcm_buffer) >= min_buffer_size:
+                                        logger.info(f"缓冲已满({len(pcm_buffer)} bytes),开始播放")
+                                        playback_started = True
+                                
+                                if playback_started:
+                                    chunk_size = audio_device.chunk_size * 2
+                                    chunks_added = 0
+                                    # 只处理完整的chunk,保留不完整的部分
+                                    bytes_to_process = (len(pcm_buffer) // chunk_size) * chunk_size
+                                    if bytes_to_process > 0:
+                                        for j in range(0, bytes_to_process, chunk_size):
+                                            chunk = bytes(pcm_buffer[j:j+chunk_size])  # 转换为bytes
+                                            audio_device.put_playback_data(chunk)
+                                            chunks_added += 1
+                                        logger.info(f"添加音频块: {bytes_to_process} bytes, {chunks_added}块, 队列: {audio_device.get_playback_queue_size()}")
+                                        # 保留未处理的数据
+                                        pcm_buffer = pcm_buffer[bytes_to_process:]
                         except Exception as e:
                             logger.error(f"播放音频片段失败: {e}")
                 else:

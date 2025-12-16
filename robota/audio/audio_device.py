@@ -464,6 +464,9 @@ class AudioDevice:
         self.playback_queue = queue.Queue()
         self.recording_queue = queue.Queue()
         
+        # 播放缓冲区 - 用于处理不完整的chunk
+        self.playback_buffer = bytearray()
+        
         # 控制标志
         self.is_running = False
         
@@ -519,43 +522,42 @@ class AudioDevice:
         return (None, pyaudio.paContinue)
     
     def _output_callback(self, in_data, frame_count, time_info, status):
-        """播放回调函数"""
+        """播放回调函数 - 优化版本,避免队列重建"""
         if status:
             default_logger.info(f"输出状态: {status}")
         
-        try:
-            # 从队列获取要播放的数据
-            data = self.playback_queue.get_nowait()
-            
-            # 确保数据大小匹配
-            required_bytes = frame_count * self.channels * 2  # 2 bytes per sample (int16)
-            if len(data) < required_bytes:
-                # 数据不够,填充静音
-                data = data + b'\x00' * (required_bytes - len(data))
-            elif len(data) > required_bytes:
-                # 数据过多,截断并把剩余部分放回队列
-                remaining = data[required_bytes:]
-                data = data[:required_bytes]
-                # 把剩余数据放回队列前面(需要优先播放)
-                # 注意:这里简单处理,实际可能需要使用优先队列
-                temp_queue = queue.Queue()
-                temp_queue.put(remaining)
-                while not self.playback_queue.empty():
-                    try:
-                        temp_queue.put(self.playback_queue.get_nowait())
-                    except queue.Empty:
-                        break
-                self.playback_queue = temp_queue
-            
-            # 添加到回声消除器的参考缓冲(如果启用)
-            if self.aec is not None:
-                self.aec.add_playback_reference(data)
-            
-            return (data, pyaudio.paContinue)
-        except queue.Empty:
-            # 如果队列为空,播放静音
-            silence = b'\x00' * (frame_count * self.channels * 2)  # 2 bytes per sample (int16)
-            return (silence, pyaudio.paContinue)
+        required_bytes = frame_count * self.channels * 2  # 2 bytes per sample (int16)
+        
+        # 尝试从缓冲区和队列填充数据
+        while len(self.playback_buffer) < required_bytes:
+            try:
+                # 从队列获取更多数据
+                chunk = self.playback_queue.get_nowait()
+                self.playback_buffer.extend(chunk)
+            except queue.Empty:
+                # 队列为空,跳出循环
+                break
+        
+        # 检查是否有足够的数据
+        if len(self.playback_buffer) >= required_bytes:
+            # 有足够数据,提取所需部分
+            data = bytes(self.playback_buffer[:required_bytes])
+            # 保留剩余数据在缓冲区
+            self.playback_buffer = self.playback_buffer[required_bytes:]
+        elif len(self.playback_buffer) > 0:
+            # 数据不够,但有一些,填充静音
+            data = bytes(self.playback_buffer)
+            data = data + b'\x00' * (required_bytes - len(data))
+            self.playback_buffer.clear()
+        else:
+            # 完全没有数据,播放静音
+            data = b'\x00' * required_bytes
+        
+        # 添加到回声消除器的参考缓冲(如果启用)
+        if self.aec is not None:
+            self.aec.add_playback_reference(data)
+        
+        return (data, pyaudio.paContinue)
     
     def start_streams(self):
         """启动音频输入输出流"""

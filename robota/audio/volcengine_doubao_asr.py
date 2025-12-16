@@ -487,6 +487,94 @@ class AsrWsClient:
         finally:
             if self.conn:
                 await self.conn.close()
+    
+    async def execute_stream(self, audio_stream) -> AsyncGenerator[AsrResponse, None]:
+        """
+        实时音频流ASR识别
+        
+        Args:
+            audio_stream: 异步生成器，产生音频数据片段(bytes)
+            
+        Yields:
+            AsrResponse对象
+        """
+        if not self.url:
+            raise ValueError("URL is empty")
+            
+        self.seq = 1
+        
+        try:
+            # 1. 创建WebSocket连接
+            await self.create_connection()
+            
+            # 2. 发送完整客户端请求
+            await self.send_full_client_request()
+            
+            # 3. 启动实时音频流处理
+            async for response in self.start_realtime_audio_stream(audio_stream):
+                yield response
+                
+        except Exception as e:
+            logger.error(f"Error in streaming ASR execution: {e}")
+            raise
+        finally:
+            if self.conn:
+                await self.conn.close()
+    
+    async def start_realtime_audio_stream(self, audio_stream) -> AsyncGenerator[AsrResponse, None]:
+        """
+        处理实时音频流
+        
+        Args:
+            audio_stream: 异步生成器，产生音频数据片段
+            
+        Yields:
+            AsrResponse对象
+        """
+        async def sender():
+            try:
+                is_first = True
+                async for audio_chunk in audio_stream:
+                    if audio_chunk is None:
+                        # None表示结束信号
+                        break
+                    
+                    # 发送音频数据
+                    is_last = False  # 实时流中间的数据包
+                    request = RequestBuilder.new_audio_only_request(
+                        self.seq,
+                        audio_chunk,
+                        is_last=is_last
+                    )
+                    await self.conn.send_bytes(request)
+                    # logger.info(f"Sent realtime audio chunk with seq: {self.seq}")
+                    self.seq += 1
+                
+                # 发送最后一个空包表示结束
+                request = RequestBuilder.new_audio_only_request(
+                    self.seq,
+                    b'',
+                    is_last=True
+                )
+                await self.conn.send_bytes(request)
+                logger.info(f"Sent final audio packet with seq: {self.seq}")
+                
+            except Exception as e:
+                logger.error(f"Error sending realtime audio: {e}")
+                raise
+        
+        # 启动发送和接收任务
+        sender_task = asyncio.create_task(sender())
+        
+        try:
+            async for response in self.recv_messages():
+                yield response
+        finally:
+            sender_task.cancel()
+            try:
+                await sender_task
+            except asyncio.CancelledError:
+                pass
 
 
 

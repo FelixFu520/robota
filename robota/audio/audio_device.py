@@ -638,4 +638,28 @@ class AudioDevice:
     def get_playback_queue_size(self):
         """获取播放队列大小"""
         return self.playback_queue.qsize()
+    
+    async def async_get_recorded_data(self, timeout=None):
+        """
+        异步方式从录音队列获取音频数据
+        
+        Args:
+            timeout: 超时时间(秒)
+            
+        Returns:
+            录音的音频数据(bytes), 如果超时则返回None
+        """
+        try:
+            # 使用asyncio的run_in_executor在线程池中执行阻塞操作
+            loop = asyncio.get_event_loop()
+            data = await asyncio.wait_for(
+                loop.run_in_executor(None, self.recording_queue.get),
+                timeout=timeout
+            )
+            return data
+        except asyncio.TimeoutError:
+            return None
+        except Exception as e:
+            default_logger.error(f"异步获取录音数据失败: {e}")
+            return None
 

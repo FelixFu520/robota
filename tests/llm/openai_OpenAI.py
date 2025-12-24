@@ -13,7 +13,14 @@ response = client.chat.completions.create(
         {'role': 'user', 'content': "介绍一下你自己"},
     ],
     model='doubao-seed-1-6-251015',  # 调用的模型
-    stream=True  # True 是流逝返回，False是非流逝返回
+    stream=True,  # True 是流逝返回，False是非流逝返回
+    extra_body={
+        "thinking": {
+            "type": "disabled"  # 不使用深度思考能力
+            # "type": "enabled" # 使用深度思考能力
+            # "type": "auto" # 模型自行判断是否使用深度思考能力
+        }
+    },
 )
 
 # stream=False的时候，打开这个，启用非流式返回

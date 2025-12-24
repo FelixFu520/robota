@@ -6,14 +6,24 @@ Run this to test the agent before deploying with langgraph dev.
 """
 import asyncio
 import os
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from robota.agent.turtlesim import TurtlesimAgent
+from robota.mcp.math import mcp_math_path
+
+async def _get_tools():
+    mcp_client = MultiServerMCPClient({
+        "math": {
+            "transport": "stdio",
+            "command": "python",
+            "args": [mcp_math_path],
+        },
+    })
+    return await mcp_client.get_tools()
 
 async def test_agent():
-    """Test the turtlesim agent."""
-    print("🤖 Initializing Turtlesim Agent...")
-    
-    agent = await TurtlesimAgent.create()
+    tools = await _get_tools()
+    agent = TurtlesimAgent(tools=tools)
 
     print("\n" + "="*60)
     print("🤖 Turtlesim Agent is ready!")
@@ -34,15 +44,15 @@ async def test_agent():
                 continue
             
             print("\n🤖 Agent thinking...")
-            result = await agent.ainvoke({
+            result = agent.stream({
                 "messages": [{"role": "user", "content": user_input}]
             })
             
             print("\n" + "-"*60)
             print("Agent Response:")
             print("-"*60)
-            for message in result["messages"]:
-                message.pretty_print()
+            for chunk in result:
+                print(chunk, end="|", flush=True)
             print("-"*60 + "\n")
             
         except KeyboardInterrupt:

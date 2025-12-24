@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+音频录音和播放测试程序
+支持同时进行音频播放和录音，并可选择启用回声消除(AEC)功能
+用于测试 AudioDevice 类的功能
+"""
 import argparse
 import time
 import wave
@@ -41,10 +47,18 @@ class AudioRecorderPlayer:
         self.total_recorded_files = 0
     
     def _load_playback_audio(self):
-        """加载要播放的音频文件"""
+        """
+        加载要播放的音频文件
+        
+        Returns:
+            bytes: 音频数据字节流
+            
+        Raises:
+            Exception: 当文件加载失败时抛出异常
+        """
         try:
             with wave.open(self.playback_file, 'rb') as wf:
-                # 验证音频参数
+                # 验证音频参数是否与设备匹配
                 if wf.getnchannels() != self.device.channels:
                     print(f"警告: 音频文件声道数({wf.getnchannels()})与设备声道数({self.device.channels})不匹配")
                 if wf.getframerate() != self.device.sample_rate:
@@ -62,14 +76,18 @@ class AudioRecorderPlayer:
             raise
     
     def _playback_loop(self):
-        """播放循环线程"""
+        """
+        播放循环线程
+        在后台线程中循环播放音频文件，将音频数据分块放入播放队列
+        """
         print("\n[播放线程] 启动")
         
         # 加载音频文件
         audio_data = self._load_playback_audio()
         
         # 计算每个chunk的字节数
-        bytes_per_chunk = self.device.chunk_size * self.device.channels * 2  # 2 bytes per sample (int16)
+        # chunk_size * channels * 2 bytes (int16格式)
+        bytes_per_chunk = self.device.chunk_size * self.device.channels * 2
         
         while self.is_running:
             try:
@@ -78,7 +96,7 @@ class AudioRecorderPlayer:
                 while offset < len(audio_data) and self.is_running:
                     chunk = audio_data[offset:offset + bytes_per_chunk]
                     
-                    # 如果是最后一块且不足chunk_size,补零
+                    # 如果是最后一块且不足chunk_size，补零对齐
                     if len(chunk) < bytes_per_chunk:
                         chunk = chunk + b'\x00' * (bytes_per_chunk - len(chunk))
                     
@@ -88,11 +106,12 @@ class AudioRecorderPlayer:
                     
                     offset += bytes_per_chunk
                     
-                    # 控制播放速度,避免队列堆积
+                    # 控制播放速度，避免队列堆积
+                    # 当队列大小超过50时，等待队列消耗
                     while self.device.get_playback_queue_size() > 50 and self.is_running:
                         time.sleep(0.01)
                 
-                # 循环播放
+                # 循环播放：播放完成后重新开始
                 if self.is_running:
                     print(f"[播放线程] 完成一次播放循环,共播放 {self.total_played_chunks} 个chunk,继续循环...")
                     
@@ -103,12 +122,15 @@ class AudioRecorderPlayer:
         print("[播放线程] 退出")
     
     def _recording_loop(self):
-        """录音循环线程"""
+        """
+        录音循环线程
+        在后台线程中持续录音，按指定间隔保存音频文件
+        """
         print("\n[录音线程] 启动")
         
         while self.is_running:
             try:
-                # 计算需要录制的帧数
+                # 计算需要录制的帧数（采样点数）
                 frames_to_record = int(self.device.sample_rate * self.record_interval)
                 
                 # 收集音频数据
@@ -118,8 +140,9 @@ class AudioRecorderPlayer:
                 print(f"\n[录音线程] 开始录制 {self.record_interval} 秒音频...")
                 start_time = time.time()
                 
+                # 持续收集音频数据直到达到目标时长
                 while recorded_samples < frames_to_record and self.is_running:
-                    # 从录音队列获取数据
+                    # 从录音队列获取数据（阻塞等待，超时1秒）
                     audio_data = self.device.get_recorded_data(block=True, timeout=1.0)
                     
                     if audio_data is not None:
@@ -132,9 +155,11 @@ class AudioRecorderPlayer:
                 
                 # 保存音频文件
                 elapsed_time = time.time() - start_time
+                # 使用时间戳生成唯一文件名
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_filename = os.path.join(self.output_dir, f"recording_{timestamp}.wav")
                 
+                # 将所有音频块合并并保存为WAV文件
                 self._save_wav_file(output_filename, b''.join(recorded_frames))
                 self.total_recorded_files += 1
                 
@@ -153,21 +178,29 @@ class AudioRecorderPlayer:
         保存音频数据为WAV文件
         
         Args:
-            filename: 输出文件名
-            audio_data: 音频数据(bytes)
+            filename: 输出文件名路径
+            audio_data: 音频数据(bytes格式，16位PCM)
+            
+        Raises:
+            Exception: 当文件保存失败时抛出异常
         """
         try:
             with wave.open(filename, 'wb') as wf:
-                wf.setnchannels(self.device.channels)
+                # 设置WAV文件参数
+                wf.setnchannels(self.device.channels)  # 声道数
                 wf.setsampwidth(2)  # 16-bit = 2 bytes
-                wf.setframerate(self.device.sample_rate)
+                wf.setframerate(self.device.sample_rate)  # 采样率
+                # 写入音频数据
                 wf.writeframes(audio_data)
         except Exception as e:
             print(f"保存WAV文件失败: {e}")
             raise
     
     def start(self):
-        """启动录音和播放"""
+        """
+        启动录音和播放
+        初始化音频设备流，启动播放和录音线程
+        """
         if self.is_running:
             print("已经在运行中")
             return
@@ -176,16 +209,16 @@ class AudioRecorderPlayer:
         print("启动音频录音和播放系统")
         print("="*60)
         
-        # 启动音频设备
+        # 启动音频设备（打开输入和输出流）
         self.device.start_streams()
         
         self.is_running = True
         
-        # 启动播放线程
+        # 启动播放线程（守护线程，主程序退出时自动结束）
         self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True)
         self.playback_thread.start()
         
-        # 启动录音线程
+        # 启动录音线程（守护线程，主程序退出时自动结束）
         self.recording_thread = threading.Thread(target=self._recording_loop, daemon=True)
         self.recording_thread.start()
         
@@ -196,20 +229,23 @@ class AudioRecorderPlayer:
         print("\n按 Ctrl+C 停止...")
     
     def stop(self):
-        """停止录音和播放"""
+        """
+        停止录音和播放
+        停止所有线程并关闭音频设备流，显示统计信息
+        """
         if not self.is_running:
             return
         
         print("\n\n正在停止...")
         self.is_running = False
         
-        # 等待线程结束
+        # 等待线程结束（最多等待2秒）
         if self.playback_thread:
             self.playback_thread.join(timeout=2.0)
         if self.recording_thread:
             self.recording_thread.join(timeout=2.0)
         
-        # 停止音频设备
+        # 停止音频设备（关闭输入和输出流）
         self.device.stop_streams()
         
         print("\n" + "="*60)
@@ -219,15 +255,18 @@ class AudioRecorderPlayer:
         print("="*60)
     
     def run(self):
-        """运行(阻塞直到用户中断)"""
+        """
+        运行系统（阻塞直到用户中断）
+        启动系统后持续运行，定期显示状态信息，直到用户按Ctrl+C中断
+        """
         self.start()
         
         try:
-            # 定期显示状态
+            # 定期显示状态（每5秒更新一次）
             while self.is_running:
                 time.sleep(5)
                 
-                # 获取AEC统计信息
+                # 获取AEC统计信息（如果启用了回声消除）
                 aec_stats = ""
                 if self.device.aec is not None:
                     stats = self.device.aec.get_stats()
@@ -237,6 +276,7 @@ class AudioRecorderPlayer:
                                f"远端语音={'是' if stats.get('has_far_speech', False) else '否'}, "
                                f"抑制率={stats.get('echo_reduction_ratio', 0):.1f}%")
                 
+                # 显示实时状态信息（使用\r实现同行更新）
                 print(f"\r[状态] 播放队列: {self.device.get_playback_queue_size()}, "
                       f"录音队列: {self.device.get_recording_queue_size()}, "
                       f"已播放: {self.total_played_chunks} chunks, "
@@ -248,7 +288,10 @@ class AudioRecorderPlayer:
 
 
 def main():
-    """主函数"""
+    """
+    主函数
+    解析命令行参数，初始化音频设备和录音播放管理器，运行测试程序
+    """
     parser = argparse.ArgumentParser(description='音频录音和播放测试程序(支持回声消除)')
     parser.add_argument('--input-device', type=int, default=None, 
                         help='输入设备索引(默认使用系统默认输入设备)')
@@ -263,7 +306,7 @@ def main():
     parser.add_argument('--playback-file', type=str, 
                         default='/home/drobotics/projects/robota/assets/xiaozhan_ref_16000_concatenated.wav',
                         help='循环播放的音频文件路径')
-    parser.add_argument('--output-dir', type=str, default='./recordings',
+    parser.add_argument('--output-dir', type=str, default='./assets/recordings',
                         help='录音文件保存目录(默认./recordings)')
     parser.add_argument('--record-interval', type=int, default=10,
                         help='录音保存间隔(秒,默认10秒)')
@@ -295,13 +338,16 @@ def main():
     if args.no_aec:
         print("\n⚠️  警告: 回声消除已禁用")
     else:
-        # 调整AEC参数
+        # 调整AEC参数（如果启用了回声消除）
         if device.aec:
             from collections import deque
+            # 设置抑制因子（限制在0.0-1.0范围内）
             device.aec.suppression_factor = max(0.0, min(1.0, args.aec_suppression))
             device.aec.filter_length = args.aec_filter_length
             device.aec.noise_gate_threshold = args.aec_noise_gate
+            # 初始化滤波器系数为零
             device.aec.filter_coeffs = np.zeros(args.aec_filter_length, dtype=np.float32)
+            # 参考缓冲区大小为滤波器长度的4倍
             device.aec.reference_buffer_size = args.aec_filter_length * 4
             device.aec.reference_buffer = deque(maxlen=device.aec.reference_buffer_size)
             
@@ -328,6 +374,7 @@ def main():
     )
     
     try:
+        # 运行管理器（阻塞直到用户中断）
         manager.run()
     except Exception as e:
         print(f"\n错误: {e}")

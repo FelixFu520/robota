@@ -2,30 +2,32 @@ import os
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 
-# Initialize model with default extra_body (applies to all calls)
-model = ChatOpenAI(
+# Initialize model without extra_body in model_kwargs (to avoid warning)
+base_model = ChatOpenAI(
     model="doubao-seed-1-6-251015",
     api_key=os.environ.get("ARK_API_KEY"),
     base_url="https://ark.cn-beijing.volces.com/api/v3",
-    model_kwargs={  # Add default parameters here
-        "extra_body": {
-            "thinking": {"type": "disabled"}
-        }
-    }
 )
 
-# Create agent with the model (inherits default extra_body)
+# Bind extra_body to the model (this ensures it's properly passed to all calls)
+default_extra_body = {
+    "thinking": {"type": "disabled"}
+}
+model = base_model.bind(extra_body=default_extra_body)
+
+# Create agent with the bound model (inherits extra_body)
 agent = create_agent(model)
 
 print("Agent")
 print('*'*100)
-# Remove extra_body from agent.stream (now uses model's default)
 import time
 time_start = time.time()
 Time_flag = True
+# Explicitly pass extra_body to ensure it's used (even though model is bound)
 for token, metadata in agent.stream(
     {"messages": [{"role": "user", "content": "介绍一下你自己"}]},  
-    stream_mode="messages"
+    stream_mode="messages",
+    extra_body=default_extra_body
 ):
     time_end = time.time()
     if Time_flag:
@@ -36,12 +38,10 @@ print('*'*100)
 
 print("Model")
 print('*'*100)
-# Keep extra_body here (optional, since model already has default)
+# Model already has extra_body bound, no need to pass it again
 time_start = time.time()
 Time_flag = True
-for chunk in model.stream("介绍一下你自己", extra_body={
-        "thinking": {"type": "disabled"}
-    }):
+for chunk in model.stream("介绍一下你自己"):
     time_end = time.time()
     if Time_flag:
         print(f"Time: {time_end - time_start:.2f} seconds", end="", flush=True)

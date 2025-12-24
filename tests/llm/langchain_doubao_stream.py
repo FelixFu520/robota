@@ -19,6 +19,13 @@ print('*'*100)
 for token, metadata in agent.stream(
     {"messages": [{"role": "user", "content": "介绍一下你自己"}]},  
     stream_mode="messages",
+    extra_body={
+        "thinking": {
+            "type": "disabled"  # 不使用深度思考能力
+            # "type": "enabled" # 使用深度思考能力
+            # "type": "auto" # 模型自行判断是否使用深度思考能力
+        }
+    }
 ):
     print(token.text, end="|", flush=True)
 print('*'*100)

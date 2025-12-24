@@ -38,21 +38,51 @@ class RobotAgent(ABC):
             }
         })
     
-    def stream(self, messages: Dict[str, Any]) -> AsyncIterator[str]:
-        return self.agent.stream(messages, extra_body={
-            "thinking": {
-                "type": "disabled"  # 不使用深度思考能力
-                # "type": "enabled" # 使用深度思考能力
-                # "type": "auto" # 模型自行判断是否使用深度思考能力
+    def stream(self, messages: Dict[str, Any], stream_mode: str = "messages"):
+        """
+        Stream agent responses.
+        
+        Args:
+            messages: Input messages
+            stream_mode: Stream mode - "messages" for LLM tokens, "updates" for agent progress
+        
+        Returns:
+            If stream_mode="messages": Iterator of (token, metadata) tuples
+            If stream_mode="updates": Iterator of state update dictionaries
+        """
+        return self.agent.stream(
+            messages, 
+            stream_mode=stream_mode,
+            extra_body={
+                "thinking": {
+                    "type": "disabled"  # 不使用深度思考能力
+                    # "type": "enabled" # 使用深度思考能力
+                    # "type": "auto" # 模型自行判断是否使用深度思考能力
+                }
             }
-        })
+        )
     
-    async def astream(self, messages: Dict[str, Any]) -> AsyncIterator[str]:
-        return await self.agent.astream(messages, extra_body={
-            "thinking": {
-                "type": "disabled"  # 不使用深度思考能力
-                # "type": "enabled" # 使用深度思考能力
-                # "type": "auto" # 模型自行判断是否使用深度思考能力
+    async def astream(self, messages: Dict[str, Any], stream_mode: str = "messages"):
+        """
+        Async stream agent responses.
+        
+        Args:
+            messages: Input messages
+            stream_mode: Stream mode - "messages" for LLM tokens, "updates" for agent progress
+        
+        Returns:
+            If stream_mode="messages": AsyncIterator of (token, metadata) tuples
+            If stream_mode="updates": AsyncIterator of state update dictionaries
+        """
+        return await self.agent.astream(
+            messages,
+            stream_mode=stream_mode,
+            extra_body={
+                "thinking": {
+                    "type": "disabled"  # 不使用深度思考能力
+                    # "type": "enabled" # 使用深度思考能力
+                    # "type": "auto" # 模型自行判断是否使用深度思考能力
+                }
             }
-        })
+        )
     

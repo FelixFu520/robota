@@ -44,16 +44,30 @@ async def test_agent():
                 continue
             
             print("\n🤖 Agent thinking...")
-            result = agent.stream({
-                "messages": [{"role": "user", "content": user_input}]
-            })
-            
             print("\n" + "-"*60)
             print("Agent Response:")
             print("-"*60)
-            for chunk in result:
-                print(chunk, end="|", flush=True)
-            print("-"*60 + "\n")
+            
+            # Stream with messages mode to get real-time token output
+            for token, metadata in agent.stream(
+                {"messages": [{"role": "user", "content": user_input}]},
+                stream_mode="messages"
+            ):
+                # Extract text content from token
+                # Token can be AIMessageChunk with content_blocks or text attribute
+                if hasattr(token, 'content_blocks') and token.content_blocks:
+                    for block in token.content_blocks:
+                        if block.get("type") == "text" and block.get("text"):
+                            print(block["text"], end="", flush=True)
+                        elif block.get("type") == "tool_call_chunk":
+                            # Optionally show tool calls being made
+                            if block.get("name"):
+                                print(f"\n[Calling tool: {block['name']}]", flush=True)
+                elif hasattr(token, 'text') and token.text:
+                    # Fallback: if token has direct text attribute
+                    print(token.text, end="", flush=True)
+            
+            print("\n" + "-"*60 + "\n")
             
         except KeyboardInterrupt:
             print("\n👋 Goodbye!")

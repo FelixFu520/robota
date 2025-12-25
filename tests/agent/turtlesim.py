@@ -50,30 +50,43 @@ async def test_agent():
             print("-"*60)
             time_start = time.time()
             Time_flag = True
-            # Stream with messages mode to get real-time token output
-            for token, metadata in agent.stream(
-                {"messages": [{"role": "user", "content": user_input}]},
-                stream_mode="messages",
-            ):
-                print("|", end="|", flush=True)
-
-                time_end = time.time()
-                if Time_flag:
-                    print(f"Time: {time_end - time_start:.2f} seconds", end="", flush=True)
-                    Time_flag = False
-                # Extract text content from token
-                # Token can be AIMessageChunk with content_blocks or text attribute
-                if hasattr(token, 'content_blocks') and token.content_blocks:
-                    for block in token.content_blocks:
-                        if block.get("type") == "text" and block.get("text"):
-                            print(block["text"], end="|", flush=True)
-                        elif block.get("type") == "tool_call_chunk":
-                            # Optionally show tool calls being made
-                            if block.get("name"):
-                                print(f"\n[Calling tool: {block['name']}]", flush=True)
-                elif hasattr(token, 'text') and token.text:
-                    # Fallback: if token has direct text attribute
-                    print(token.text, end="|", flush=True)
+            
+            # 检测是否需要工具调用来决定流式策略
+            needs_tools = any(keyword in user_input.lower() for keyword in ['计算', '加', '乘', '数学', 'calculate', 'add', 'multiply'])
+            
+            if needs_tools:
+                # 对于工具调用，使用代理的异步流式输出
+                async for token, metadata in agent.agent.astream(
+                    {"messages": [{"role": "user", "content": user_input}]},
+                    stream_mode="messages",
+                ):
+                    time_end = time.time()
+                    if Time_flag:
+                        print(f"Time: {time_end - time_start:.2f} seconds ", end="", flush=True)
+                        Time_flag = False
+                    
+                    # Extract text content from token
+                    if hasattr(token, 'content_blocks') and token.content_blocks:
+                        for block in token.content_blocks:
+                            if block.get("type") == "text" and block.get("text"):
+                                print(block["text"], end="", flush=True)
+                            elif block.get("type") == "tool_call_chunk":
+                                if block.get("name"):
+                                    print(f"\n[🔧 Calling tool: {block['name']}] ", end="", flush=True)
+                    elif hasattr(token, 'text') and token.text:
+                        print(token.text, end="", flush=True)
+                    elif hasattr(token, 'content') and token.content:
+                        print(token.content, end="", flush=True)
+            else:
+                # 对于普通对话，直接使用模型的流式输出获得更好的体验
+                for chunk in agent.model.stream(f"你是一个能够控制Turtlesim机器人的ROS 2助手。{user_input}"):
+                    time_end = time.time()
+                    if Time_flag:
+                        print(f"Time: {time_end - time_start:.2f} seconds ", end="", flush=True)
+                        Time_flag = False
+                    
+                    if chunk.content:
+                        print(chunk.content, end="", flush=True)
             
             print("\n" + "-"*60 + "\n")
             

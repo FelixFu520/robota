@@ -35,6 +35,7 @@ DOUBAO_SEED_1_6_251015_NOTHINKING = ChatOpenAI(
     model="doubao-seed-1-6-251015",
     api_key=os.environ.get("ARK_API_KEY"),
     base_url="https://ark.cn-beijing.volces.com/api/v3",
+    streaming=True,  # 启用流式输出
     model_kwargs={"extra_body": default_extra_body},
 )
 

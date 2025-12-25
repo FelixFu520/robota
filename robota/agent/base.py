@@ -55,8 +55,9 @@ class RobotAgent(ABC):
             If stream_mode="messages": AsyncIterator of (token, metadata) tuples
             If stream_mode="updates": AsyncIterator of state update dictionaries
         """
-        return await self.agent.astream(
+        async for chunk in self.agent.astream(
             messages,
             stream_mode=stream_mode,
-        )
+        ):
+            yield chunk
     

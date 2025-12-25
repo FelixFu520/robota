@@ -9,6 +9,7 @@ from robota.utils import logging  # noqa: F401
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from robota.mcp.math import mcp_math_path
 from robota.agent.turtlesim import TurtlesimAgent
+import time
 
 
 async def main():
@@ -33,8 +34,13 @@ async def main():
     print("="*60)
     user_input = "简单介绍你自己"
     print(f"👤 用户: {user_input}\n🤖 Agent: ", end="", flush=True)
-    
+    time_start = time.time()
+    is_first_token = True
     async for event in agent.astream_with_tools(user_input):
+        if is_first_token:
+            print(f"Time: {time.time() - time_start:.2f} seconds ", flush=True)
+            is_first_token = False
+        print("|", end="|", flush=True)
         if event["type"] == "token":
             print(event["content"], end="", flush=True)
         elif event["type"] == "done":
@@ -47,8 +53,13 @@ async def main():
     print("="*60)
     user_input = "帮我计算 123 + 456 等于多少"
     print(f"👤 用户: {user_input}\n🤖 Agent: ", end="", flush=True)
-    
+    time_start = time.time()
+    is_first_token = True
     async for event in agent.astream_with_tools(user_input):
+        if is_first_token:
+            print(f"Time: {time.time() - time_start:.2f} seconds ", flush=True)
+            is_first_token = False
+        print("|", end="|", flush=True)
         event_type = event["type"]
         
         if event_type == "token":

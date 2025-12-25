@@ -81,7 +81,7 @@ async def test_agent_streaming():
     first_token_time = None
     
     # 使用新的 astream_with_tools 方法获取逐token流
-    async for event in agent.astream_with_tools("介绍你自己，详细点"):
+    async for event in agent.astream_with_tools("介绍你自己，详细点, 说下你有那些工具"):
         print("|", end="|", flush=True)
         event_type = event.get("type")
         current_time = time.time()

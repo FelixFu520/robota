@@ -21,22 +21,10 @@ class RobotAgent(ABC):
         )
     
     def invoke(self, messages: Dict[str, Any]) -> str:
-        return self.agent.invoke(messages, extra_body={
-            "thinking": {
-                "type": "disabled"  # 不使用深度思考能力
-                # "type": "enabled" # 使用深度思考能力
-                # "type": "auto" # 模型自行判断是否使用深度思考能力
-            }
-        })
+        return self.agent.invoke(messages)
     
     async def ainvoke(self, messages: Dict[str, Any]) -> str:
-        return await self.agent.ainvoke(messages, extra_body={
-            "thinking": {
-                "type": "disabled"  # 不使用深度思考能力
-                # "type": "enabled" # 使用深度思考能力
-                # "type": "auto" # 模型自行判断是否使用深度思考能力
-            }
-        })
+        return await self.agent.ainvoke(messages)
     
     def stream(self, messages: Dict[str, Any], stream_mode: str = "messages"):
         """
@@ -53,13 +41,6 @@ class RobotAgent(ABC):
         return self.agent.stream(
             messages, 
             stream_mode=stream_mode,
-            extra_body={
-                "thinking": {
-                    "type": "disabled"  # 不使用深度思考能力
-                    # "type": "enabled" # 使用深度思考能力
-                    # "type": "auto" # 模型自行判断是否使用深度思考能力
-                }
-            }
         )
     
     async def astream(self, messages: Dict[str, Any], stream_mode: str = "messages"):
@@ -77,12 +58,5 @@ class RobotAgent(ABC):
         return await self.agent.astream(
             messages,
             stream_mode=stream_mode,
-            extra_body={
-                "thinking": {
-                    "type": "disabled"  # 不使用深度思考能力
-                    # "type": "enabled" # 使用深度思考能力
-                    # "type": "auto" # 模型自行判断是否使用深度思考能力
-                }
-            }
         )
     

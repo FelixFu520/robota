@@ -27,7 +27,7 @@ Time_flag = True
 for token, metadata in agent.stream(
     {"messages": [{"role": "user", "content": "介绍一下你自己"}]},  
     stream_mode="messages",
-    extra_body=default_extra_body
+    # extra_body=default_extra_body
 ):
     time_end = time.time()
     if Time_flag:

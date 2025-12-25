@@ -11,7 +11,7 @@ from robota.model import DOUBAO_SEED_1_6_251015_NOTHINKING
 from robota.agent.base import RobotAgent
 
 
-class TurtlesimAgent(RobotAgent):
+class TurtlesimAgentText(RobotAgent):
     """
     Turtlesim 机器人 Agent.
     

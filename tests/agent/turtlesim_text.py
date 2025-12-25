@@ -11,7 +11,7 @@ import time
 from robota.utils import logging  # noqa: F401
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from robota.agent.turtlesim import TurtlesimAgent
+from robota.agent.turtlesim_text import TurtlesimAgentText
 from robota.mcp.math import mcp_math_path
 
 async def _get_tools():
@@ -26,7 +26,7 @@ async def _get_tools():
 
 async def test_agent():
     tools = await _get_tools()
-    agent = TurtlesimAgent(tools=tools)
+    agent = TurtlesimAgentText(tools=tools)
 
     print("\n" + "="*60)
     print("🤖 Turtlesim Agent is ready!")

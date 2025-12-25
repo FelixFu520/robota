@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 from loguru import logger
+import logging
 
 __all__ = [
     'Logger',
@@ -110,3 +111,16 @@ class Logger:
 
 # 创建默认日志器实例
 default_logger = Logger()
+
+# 关闭第三方库的 INFO 日志
+# 关闭 httpx 的 HTTP 请求日志
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# 关闭 openai 的日志
+logging.getLogger("openai").setLevel(logging.WARNING)
+
+# 关闭 MCP server 的 INFO 日志
+logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.WARNING)
+
+# 关闭所有 MCP 相关日志
+logging.getLogger("mcp").setLevel(logging.WARNING)

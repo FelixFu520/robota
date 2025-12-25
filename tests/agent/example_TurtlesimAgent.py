@@ -4,6 +4,8 @@
 演示如何实时打印 Agent 输出并支持工具调用
 """
 import asyncio
+# 在导入其他模块之前先导入 logging，确保日志配置生效
+from robota.utils import logging  # noqa: F401
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from robota.mcp.math import mcp_math_path
 from robota.agent.turtlesim import TurtlesimAgent

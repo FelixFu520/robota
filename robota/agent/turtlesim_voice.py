@@ -345,15 +345,209 @@ class TurtlesimAgentVoice(RobotAgent):
         Returns:
             PCM 格式的音频数据
         """
+        if not mp3_data or len(mp3_data) == 0:
+            return b""
+        
         try:
+            # 确保MP3数据有足够的头部信息
+            # MP3文件通常至少需要一些字节才能被识别
+            if len(mp3_data) < 100:
+                logger.warning(f"MP3数据太短({len(mp3_data)}字节)，可能不完整")
+                return b""
+            
             audio = AudioSegment.from_file(io.BytesIO(mp3_data), format="mp3")
             audio = audio.set_channels(1)
             audio = audio.set_frame_rate(target_sample_rate)
             audio = audio.set_sample_width(2)
             return audio.raw_data
         except Exception as e:
-            logger.error(f"转换MP3到PCM失败: {e}")
+            logger.error(f"转换MP3到PCM失败: {e}, MP3数据长度: {len(mp3_data)}")
             return b""
+    
+    async def speak_to_queue(self, text: str, encoding: str = "mp3", wait_for_playback: bool = True) -> bool:
+        """
+        将文本转换为语音并放入播放队列.
+        
+        这个方法用于流式播放，可以将文本片段转换为音频并放入播放队列。
+        如果 wait_for_playback=True，会等待当前片段的音频播放完成后再返回。
+        
+        Args:
+            text: 要转换的文本
+            encoding: 音频编码格式("mp3" 或 "pcm")
+            wait_for_playback: 是否等待播放完成后再返回
+            
+        Returns:
+            是否成功
+        """
+        if not self._audio_streams_started:
+            self.start_audio_streams()
+        
+        try:
+            # 构建 WebSocket 连接请求头
+            headers = {
+                "X-Api-App-Key": self.tts_appid,
+                "X-Api-Access-Key": self.tts_access_token,
+                "X-Api-Resource-Id": self.tts_resource_id,
+                "X-Api-Connect-Id": str(uuid.uuid4()),
+            }
+            
+            # 连接到 WebSocket 服务器
+            websocket = await websockets.connect(
+                self.tts_url, 
+                additional_headers=headers, 
+                max_size=10 * 1024 * 1024
+            )
+            
+            try:
+                # 启动连接
+                await start_connection(websocket)
+                await wait_for_event(
+                    websocket, MsgType.FullServerResponse, EventType.ConnectionStarted
+                )
+                
+                # 构建请求参数
+                base_request = {
+                    "user": {"uid": str(uuid.uuid4())},
+                    "namespace": "BidirectionalTTS",
+                    "req_params": {
+                        "speaker": self.tts_voice_type,
+                        "audio_params": {
+                            "format": encoding,
+                            "sample_rate": 24000,
+                            "enable_timestamp": True,
+                        },
+                        "additions": json.dumps({"disable_markdown_filter": False}),
+                    },
+                }
+                
+                # 启动会话
+                start_session_request = base_request.copy()
+                start_session_request["event"] = EventType.StartSession
+                session_id = str(uuid.uuid4())
+                await start_session(
+                    websocket, json.dumps(start_session_request).encode(), session_id
+                )
+                await wait_for_event(
+                    websocket, MsgType.FullServerResponse, EventType.SessionStarted
+                )
+                
+                # 逐字符发送文本
+                async def send_chars():
+                    for char in text:
+                        synthesis_request = base_request.copy()
+                        synthesis_request["event"] = EventType.TaskRequest
+                        synthesis_request["req_params"]["text"] = char
+                        await task_request(
+                            websocket, json.dumps(synthesis_request).encode(), session_id
+                        )
+                        await asyncio.sleep(0.005)
+                    await finish_session(websocket, session_id)
+                
+                send_task = asyncio.create_task(send_chars())
+                
+                # 在开始放入音频数据之前，记录队列大小
+                initial_queue_size = self.audio.get_playback_queue_size()
+                
+                # 接收音频数据并放入播放队列
+                mp3_buffer = bytearray()
+                min_buffer_size = 8192
+                mp3_convert_threshold = 4096
+                playback_started = False
+                
+                while True:
+                    msg = await receive_message(websocket)
+                    
+                    if msg.type == MsgType.FullServerResponse:
+                        if msg.event == EventType.SessionFinished:
+                            # 等待一小段时间，确保所有音频数据都接收完成
+                            await asyncio.sleep(0.2)
+                            if len(mp3_buffer) > 0:
+                                if encoding == "mp3":
+                                    # 确保缓冲区有足够的数据
+                                    if len(mp3_buffer) >= 100:  # MP3文件至少需要一些字节
+                                        pcm_data = self._convert_mp3_to_pcm(bytes(mp3_buffer), self.audio.sample_rate)
+                                        if pcm_data:
+                                            self.audio.put_playback_data(pcm_data)
+                                        else:
+                                            logger.warning(f"SessionFinished时MP3转换失败，缓冲区大小: {len(mp3_buffer)}")
+                                    else:
+                                        logger.warning(f"SessionFinished时MP3缓冲区数据不足，大小: {len(mp3_buffer)}")
+                                mp3_buffer.clear()
+                            break
+                    elif msg.type == MsgType.AudioOnlyServer:
+                        if msg.payload:
+                            if encoding == "mp3":
+                                mp3_buffer.extend(msg.payload)
+                                if not playback_started and len(mp3_buffer) >= min_buffer_size:
+                                    playback_started = True
+                                if playback_started and len(mp3_buffer) >= mp3_convert_threshold:
+                                    # 转换并放入播放队列
+                                    pcm_data = self._convert_mp3_to_pcm(bytes(mp3_buffer), self.audio.sample_rate)
+                                    if pcm_data:
+                                        self.audio.put_playback_data(pcm_data)
+                                        mp3_buffer.clear()
+                                    else:
+                                        # 转换失败，可能是数据不完整，保留缓冲区继续累积
+                                        logger.debug(f"MP3转换失败，保留缓冲区继续累积，当前大小: {len(mp3_buffer)}")
+                                        # 如果缓冲区太大，清空一部分避免内存问题
+                                        if len(mp3_buffer) > 65536:  # 64KB
+                                            logger.warning(f"MP3缓冲区过大({len(mp3_buffer)}字节)，清空一半")
+                                            mp3_buffer = mp3_buffer[len(mp3_buffer)//2:]
+                            elif encoding == "pcm":
+                                self.audio.put_playback_data(msg.payload)
+                                if not playback_started:
+                                    playback_started = True
+                    else:
+                        # 未知消息类型，记录日志但继续处理
+                        logger.warning(f"收到未知消息类型: {msg.type}")
+                
+                # 等待字符发送任务完成
+                await send_task
+                
+                # 结束连接
+                await finish_connection(websocket)
+                await wait_for_event(
+                    websocket, MsgType.FullServerResponse, EventType.ConnectionFinished
+                )
+                await websocket.close()
+                
+                # 如果设置了等待播放完成，等待当前片段的音频播放完成
+                if wait_for_playback:
+                    # 等待队列大小回到初始大小或更小（表示当前片段的音频已播放完成）
+                    # 但需要考虑到可能还有其他音频在队列中，所以等待队列大小稳定
+                    max_wait = 60  # 最多等待 60 秒
+                    wait_count = 0
+                    stable_count = 0
+                    last_queue_size = self.audio.get_playback_queue_size()
+                    
+                    while wait_count < max_wait * 10:
+                        await asyncio.sleep(0.1)
+                        wait_count += 1
+                        current_queue_size = self.audio.get_playback_queue_size()
+                        
+                        # 如果队列大小回到初始大小或更小，说明当前片段的音频已播放完成
+                        if current_queue_size <= initial_queue_size:
+                            stable_count += 1
+                            # 连续3次检查都满足条件，认为播放完成
+                            if stable_count >= 3:
+                                break
+                        else:
+                            stable_count = 0
+                            last_queue_size = current_queue_size
+                    
+                    # 额外等待一小段时间确保播放完成
+                    await asyncio.sleep(0.2)
+                
+                return True
+            finally:
+                if websocket:
+                    try:
+                        await websocket.close()
+                    except Exception as e:
+                        logger.warning(f"关闭 WebSocket 时出错: {e}")
+        except Exception as e:
+            logger.error(f"TTS转换失败: {e}")
+            return False
     
     async def speak_and_play(self, text: str, encoding: str = "mp3") -> bool:
         """
@@ -560,23 +754,29 @@ class TurtlesimAgentVoice(RobotAgent):
         
         response_text = ""
         current_sentence = ""  # 当前正在收集的句子
-        tts_queue = asyncio.Queue()  # TTS播放队列
+        text_queue = asyncio.Queue()  # 文本片段队列，确保按顺序处理
         
-        # 启动TTS播放队列处理器
-        async def tts_queue_processor():
-            """处理TTS播放队列，确保按顺序播放"""
+        # 启动TTS处理任务，按顺序处理文本片段
+        async def tts_processor():
+            """按顺序处理文本片段，确保音频按顺序放入播放队列"""
+            segment_index = 0
             while True:
-                text_segment = await tts_queue.get()
+                text_segment = await text_queue.get()
                 if text_segment is None:  # 结束信号
                     break
-                if text_segment.strip():  # 只播放非空文本
+                if text_segment.strip():  # 只处理非空文本
+                    segment_index += 1
                     try:
-                        await self.speak_and_play(text_segment.strip())
+                        # 将文本转换为音频并放入播放队列（按顺序）
+                        # 不等待播放完成，让音频流畅连续播放
+                        await self.speak_to_queue(text_segment.strip(), wait_for_playback=False)
+                        if print_realtime:
+                            print(f" [✅ TTS#{segment_index}完成]", end="", flush=True)
                     except Exception as e:
-                        logger.error(f"TTS播放失败: {e}")
-                tts_queue.task_done()
+                        logger.error(f"TTS处理失败: {e}")
+                text_queue.task_done()
         
-        tts_processor_task = asyncio.create_task(tts_queue_processor())
+        tts_processor_task = asyncio.create_task(tts_processor())
         
         try:
             async for event in self.astream_with_tools(user_text):
@@ -593,11 +793,11 @@ class TurtlesimAgentVoice(RobotAgent):
                     
                     # 检测句子分隔符
                     if token in sentence_delimiters:
-                        # 将当前句子加入TTS播放队列
+                        # 将当前句子加入TTS处理队列（按顺序处理）
                         if current_sentence.strip():
-                            await tts_queue.put(current_sentence)
+                            await text_queue.put(current_sentence)
                             if print_realtime:
-                                print(f" [🔊 已加入播放队列]", end="", flush=True)
+                                print(f" [🔊 已加入TTS队列]", end="", flush=True)
                         current_sentence = ""  # 重置当前句子
                 
                 elif event_type == "tool_call_start" and print_realtime:
@@ -617,21 +817,22 @@ class TurtlesimAgentVoice(RobotAgent):
                         print("\n")
                     break
             
-            # 将剩余的文本也加入播放队列
+            # 将剩余的文本也加入TTS处理队列
             if current_sentence.strip():
-                await tts_queue.put(current_sentence.strip())
+                await text_queue.put(current_sentence.strip())
             
             # 发送结束信号
-            await tts_queue.put(None)
+            await text_queue.put(None)
             
-            # 等待TTS播放队列处理完成
+            # 等待TTS处理任务完成（所有音频已按顺序放入播放队列）
             await tts_processor_task
             
         except Exception as e:
             logger.error(f"生成回复时出错: {e}")
             # 确保发送结束信号
             try:
-                await tts_queue.put(None)
+                await text_queue.put(None)
+                await tts_processor_task
             except:
                 pass
         

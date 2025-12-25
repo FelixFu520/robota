@@ -29,6 +29,7 @@ for token, metadata in agent.stream(
     stream_mode="messages",
     # extra_body=default_extra_body
 ):
+    print("|", end="|", flush=True)
     time_end = time.time()
     if Time_flag:
         print(f"Time: {time_end - time_start:.2f} seconds", end="", flush=True)
@@ -36,15 +37,15 @@ for token, metadata in agent.stream(
     print(token.text, end="|", flush=True)
 print('*'*100)
 
-print("Model")
-print('*'*100)
-# Model already has extra_body bound, no need to pass it again
-time_start = time.time()
-Time_flag = True
-for chunk in model.stream("介绍一下你自己"):
-    time_end = time.time()
-    if Time_flag:
-        print(f"Time: {time_end - time_start:.2f} seconds", end="", flush=True)
-        Time_flag = False
-    print(chunk.text, end="|", flush=True)
-print('*'*100)
+# print("Model")
+# print('*'*100)
+# # Model already has extra_body bound, no need to pass it again
+# time_start = time.time()
+# Time_flag = True
+# for chunk in model.stream("介绍一下你自己"):
+#     time_end = time.time()
+#     if Time_flag:
+#         print(f"Time: {time_end - time_start:.2f} seconds", end="", flush=True)
+#         Time_flag = False
+#     print(chunk.text, end="|", flush=True)
+# print('*'*100)

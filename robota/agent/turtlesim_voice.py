@@ -548,56 +548,95 @@ class TurtlesimAgentVoice(RobotAgent):
         if print_realtime:
             print(f"\n✅ 识别完成: {user_text}\n")
         
-        # 2. 使用 Agent 生成回复
+        # 2. 使用 Agent 生成回复（流式生成并实时播放）
         if print_realtime:
             print("="*60)
-            print("🤖 步骤 2/3: Agent 正在生成回复...")
+            print("🤖 步骤 2/3: Agent 正在生成回复（流式播放）...")
             print("="*60)
             print("🤖 Agent: ", end="", flush=True)
         
-        response_text = ""
-        is_first_token = True
+        # 句子分隔符：中文和英文的句号、逗号、问号、感叹号、分号
+        sentence_delimiters = set(['。', '.', '，', ',', '？', '?', '！', '!', '；', ';', '\n'])
         
-        async for event in self.astream_with_tools(user_text):
-            event_type = event["type"]
+        response_text = ""
+        current_sentence = ""  # 当前正在收集的句子
+        tts_queue = asyncio.Queue()  # TTS播放队列
+        
+        # 启动TTS播放队列处理器
+        async def tts_queue_processor():
+            """处理TTS播放队列，确保按顺序播放"""
+            while True:
+                text_segment = await tts_queue.get()
+                if text_segment is None:  # 结束信号
+                    break
+                if text_segment.strip():  # 只播放非空文本
+                    try:
+                        await self.speak_and_play(text_segment.strip())
+                    except Exception as e:
+                        logger.error(f"TTS播放失败: {e}")
+                tts_queue.task_done()
+        
+        tts_processor_task = asyncio.create_task(tts_queue_processor())
+        
+        try:
+            async for event in self.astream_with_tools(user_text):
+                event_type = event["type"]
+                
+                if event_type == "token":
+                    token = event["content"]
+                    # 实时打印每个 token
+                    if print_realtime:
+                        print(token, end="", flush=True)
+                    
+                    response_text += token
+                    current_sentence += token
+                    
+                    # 检测句子分隔符
+                    if token in sentence_delimiters:
+                        # 将当前句子加入TTS播放队列
+                        if current_sentence.strip():
+                            await tts_queue.put(current_sentence)
+                            if print_realtime:
+                                print(f" [🔊 已加入播放队列]", end="", flush=True)
+                        current_sentence = ""  # 重置当前句子
+                
+                elif event_type == "tool_call_start" and print_realtime:
+                    # 显示工具调用信息
+                    print(f"\n  🔧 [调用工具: {event['tool_name']}]")
+                    print(f"     参数: {event['tool_args']}", flush=True)
+                
+                elif event_type == "tool_call_end" and print_realtime:
+                    # 显示工具返回结果
+                    print(f"  ✅ [工具返回: {event['tool_result']}]\n🤖 Agent: ", end="", flush=True)
+                
+                elif event_type == "error" and print_realtime:
+                    print(f"\n  ❌ 错误: {event['error']}", flush=True)
+                
+                elif event_type == "done":
+                    if print_realtime:
+                        print("\n")
+                    break
             
-            if event_type == "token":
-                # 实时打印每个 token
-                if print_realtime:
-                    print(event["content"], end="", flush=True)
-                response_text += event["content"]
+            # 将剩余的文本也加入播放队列
+            if current_sentence.strip():
+                await tts_queue.put(current_sentence.strip())
             
-            elif event_type == "tool_call_start" and print_realtime:
-                # 显示工具调用信息
-                print(f"\n  🔧 [调用工具: {event['tool_name']}]")
-                print(f"     参数: {event['tool_args']}", flush=True)
+            # 发送结束信号
+            await tts_queue.put(None)
             
-            elif event_type == "tool_call_end" and print_realtime:
-                # 显示工具返回结果
-                print(f"  ✅ [工具返回: {event['tool_result']}]\n🤖 Agent: ", end="", flush=True)
+            # 等待TTS播放队列处理完成
+            await tts_processor_task
             
-            elif event_type == "error" and print_realtime:
-                print(f"\n  ❌ 错误: {event['error']}", flush=True)
-            
-            elif event_type == "done":
-                if print_realtime:
-                    print("\n")
-                break
+        except Exception as e:
+            logger.error(f"生成回复时出错: {e}")
+            # 确保发送结束信号
+            try:
+                await tts_queue.put(None)
+            except:
+                pass
         
         if print_realtime:
-            print(f"✅ 回复生成完成\n")
-        
-        # 3. 播放回复
-        if response_text:
-            if print_realtime:
-                print("="*60)
-                print("🔊 步骤 3/3: 正在播放回复...")
-                print("="*60)
-            
-            await self.speak_and_play(response_text)
-            
-            if print_realtime:
-                print("✅ 播放完成\n")
+            print(f"✅ 回复生成和播放完成\n")
         
         return response_text
     

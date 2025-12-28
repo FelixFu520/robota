@@ -18,7 +18,7 @@ from robota.utils import logging  # noqa: F401
 from robota.utils.logging import default_logger as logger
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from robota.agent.turtlesim import TurtlesimAgent
+from robota.agent.turtlesim_voice import TurtlesimAgentVoice
 from robota.mcp.math import mcp_math_path
 
 async def _get_tools():
@@ -31,7 +31,7 @@ async def _get_tools():
     })
     return await mcp_client.get_tools()
 
-async def test_text_mode(agent: TurtlesimAgent):
+async def test_text_mode(agent: TurtlesimAgentVoice):
     """
     测试文本交互模式.
     
@@ -98,7 +98,7 @@ async def test_text_mode(agent: TurtlesimAgent):
             import traceback
             traceback.print_exc()
 
-async def test_voice_mode(agent: TurtlesimAgent, duration: Optional[int] = None):
+async def test_voice_mode(agent: TurtlesimAgentVoice, duration: Optional[int] = None):
     """
     测试语音交互模式.
     
@@ -156,7 +156,7 @@ async def test_voice_mode(agent: TurtlesimAgent, duration: Optional[int] = None)
     finally:
         agent.stop_audio_streams()
 
-async def test_asr_only(agent: TurtlesimAgent, duration: int = 10):
+async def test_asr_only(agent: TurtlesimAgentVoice, duration: int = 10):
     """
     仅测试 ASR 功能.
     
@@ -180,7 +180,7 @@ async def test_asr_only(agent: TurtlesimAgent, duration: int = 10):
     finally:
         agent.stop_audio_streams()
 
-async def test_tts_only(agent: TurtlesimAgent, text: str):
+async def test_tts_only(agent: TurtlesimAgentVoice, text: str):
     """
     仅测试 TTS 功能.
     
@@ -248,7 +248,7 @@ async def test_agent():
     tools = await _get_tools()
     
     # 创建 Agent
-    agent = TurtlesimAgent(
+    agent = TurtlesimAgentVoice(
         tools=tools,
         enable_aec=not args.no_aec
     )
@@ -273,17 +273,26 @@ if __name__ == "__main__":
     asyncio.run(test_agent())
     """
     # 文本交互模式（默认）
-    python tests/agent/turtlesim.py --mode text
+    python tests/agent/turtlesim_voice.py --mode text
 
     # 语音交互模式
-    python tests/agent/turtlesim.py --mode voice --duration 1000
+    python tests/agent/turtlesim_voice.py --mode voice --duration 1000
 
     # 仅测试 ASR
-    python tests/agent/turtlesim.py --mode asr --duration 30
+    python tests/agent/turtlesim_voice.py --mode asr --duration 30
 
     # 仅测试 TTS
-    python tests/agent/turtlesim.py --mode tts --tts-text "你好，我是地瓜君"
+    python tests/agent/turtlesim_voice.py --mode tts --tts-text "你好，我是地瓜君"
 
     # 禁用回声消除
-    python tests/agent/turtlesim.py --mode voice --no-aec
+    python tests/agent/turtlesim_voice.py --mode voice --no-aec
+
+    # 使用静音检测模式（默认，检测到0.8秒静音后自动结束）
+    python tests/agent/turtlesim_voice.py --mode voice
+
+    # 或者明确指定
+    python tests/agent/turtlesim_voice.py --mode voice --duration none
+
+    # 使用固定时长模式
+    python tests/agent/turtlesim_voice.py --mode voice --duration 10
     """

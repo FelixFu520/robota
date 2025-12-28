@@ -1,6 +1,11 @@
+"""
+测试agent的流式输出和工具调用
+测试stream的messages和updates两种模式
+messages模式：输出LLM生成的token
+updates模式：输出Agent状态更新，包括工具调用等
+"""
+
 import os
-import time
-import asyncio
 from langchain_openai import ChatOpenAI
 from langchain.tools import tool
 from langchain.agents import create_agent
@@ -27,7 +32,7 @@ def add(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
         >>> add(0, 0)
         0
     """
-    return 4
+    return 1234567890
 
 model = ChatOpenAI(
     model="doubao-seed-1-6-251015",
@@ -40,12 +45,11 @@ model = ChatOpenAI(
 agent = create_agent(
             model=model,
             tools=[add],  # 启用工具以测试工具调用
-            system_prompt="""你是个智能助手，可以和用户聊天。
-
-重要：当你调用工具后，必须完全使用工具返回的结果，不要自己计算或推断。
-如果工具返回的结果与你预期的不同，也要如实报告工具返回的结果。""",
+            system_prompt="""
+                你是个智能助手，可以和用户聊天。
+                重要：当你调用工具后，必须完全使用工具返回的结果，不要自己计算或推断。
+                如果工具返回的结果与你预期的不同，也要如实报告工具返回的结果。""",
 )
-
 
 
 def test_stream():
@@ -70,14 +74,14 @@ def test_stream():
     print(f"\n总共收到 {chunk_count} 个文本chunk")
 
 
-    print('\n' + '-' * 60)
+    print('\n' + '-' * 60 + '\n')
 
     chunk_count = 0
     tool_call_count = 0
     update_count = 0
     try:
         for chunk in agent.stream(
-            {"messages": [{"role": "user", "content": "计算1 + 2 等于多少"}]},
+            {"messages": [{"role": "user", "content": "计算34253264357643655234 + 22134213495732940587391465 等于多少"}]},
             stream_mode="updates",
         ):
             update_count += 1

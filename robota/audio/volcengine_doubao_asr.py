@@ -40,9 +40,12 @@ class CompressionType:
 class Config:
     def __init__(self):
         # 填入控制台获取的app id和access token
+        app_id = os.environ.get("ASR_APP_KEY")
+        access_key = os.environ.get("ASR_ACCESS_KEY")
+        assert app_id and access_key, "ASR_APP_KEY and ASR_ACCESS_KEY must be set"
         self.auth = {
-            "app_key": "5919896644",
-            "access_key": "G-o4lEbyzOv9F6cLu9jYhkrOegOjorqU"
+            "app_key": app_id,
+            "access_key": access_key
         }
 
     @property

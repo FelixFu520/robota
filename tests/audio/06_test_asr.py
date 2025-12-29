@@ -81,7 +81,7 @@ async def main():
         await asr_tts.start_realtime_asr(silence_timeout_ms=args.silence_timeout)
         
         # ASR识别完成后，等待一小段时间让队列中的结果被处理
-        await asyncio.sleep(1.0)
+        # await asyncio.sleep(1.0)
         
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在停止...")

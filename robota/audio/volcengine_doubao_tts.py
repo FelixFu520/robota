@@ -433,7 +433,7 @@ async def receive_message(websocket: websockets.WebSocketClientProtocol) -> Mess
             raise ValueError(f"Unexpected text message: {data}")
         elif isinstance(data, bytes):
             msg = Message.from_bytes(data)
-            logger.info(f"Received: {msg}")
+            # logger.info(f"Received: {msg}")
             return msg
         else:
             raise ValueError(f"Unexpected message type: {type(data)}")
@@ -462,7 +462,7 @@ async def full_client_request(
     """Send full client message"""
     msg = Message(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.NoSeq)
     msg.payload = payload
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())
 
 
@@ -472,7 +472,7 @@ async def audio_only_client(
     """Send audio-only client message"""
     msg = Message(type=MsgType.AudioOnlyClient, flag=flag)
     msg.payload = payload
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())
 
 
@@ -481,7 +481,7 @@ async def start_connection(websocket: websockets.WebSocketClientProtocol) -> Non
     msg = Message(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.WithEvent)
     msg.event = EventType.StartConnection
     msg.payload = b"{}"
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())
 
 
@@ -490,7 +490,7 @@ async def finish_connection(websocket: websockets.WebSocketClientProtocol) -> No
     msg = Message(type=MsgType.FullClientRequest, flag=MsgTypeFlagBits.WithEvent)
     msg.event = EventType.FinishConnection
     msg.payload = b"{}"
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())
 
 
@@ -502,7 +502,7 @@ async def start_session(
     msg.event = EventType.StartSession
     msg.session_id = session_id
     msg.payload = payload
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())
 
 
@@ -514,7 +514,7 @@ async def finish_session(
     msg.event = EventType.FinishSession
     msg.session_id = session_id
     msg.payload = b"{}"
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())
 
 
@@ -526,7 +526,7 @@ async def cancel_session(
     msg.event = EventType.CancelSession
     msg.session_id = session_id
     msg.payload = b"{}"
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())
 
 
@@ -538,5 +538,5 @@ async def task_request(
     msg.event = EventType.TaskRequest
     msg.session_id = session_id
     msg.payload = payload
-    logger.info(f"Sending: {msg}")
+    # logger.info(f"Sending: {msg}")
     await websocket.send(msg.marshal())

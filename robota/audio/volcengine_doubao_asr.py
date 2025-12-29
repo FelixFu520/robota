@@ -365,7 +365,7 @@ class AsrWsClient:
                 self.url,
                 headers=headers
             )
-            logger.info(f"Connected to {self.url}")
+            # logger.info(f"Connected to {self.url}")
         except Exception as e:
             logger.error(f"Failed to connect to WebSocket: {e}")
             raise
@@ -380,7 +380,7 @@ class AsrWsClient:
             msg = await self.conn.receive()
             if msg.type == aiohttp.WSMsgType.BINARY:
                 response = ResponseParser.parse_response(msg.data)
-                logger.info(f"Received response: {response.to_dict()}")
+                # logger.info(f"Received response: {response.to_dict()}")
             else:
                 logger.error(f"Unexpected message type: {msg.type}")
         except Exception as e:

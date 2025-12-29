@@ -331,6 +331,7 @@ class ASRTTS:
         
         使用 pydub 库进行音频格式转换，将MP3压缩音频转换为PCM原始音频数据。
         转换过程包括：格式转换、声道转换（转为单声道）、采样率转换、位深度转换。
+        增加了数据验证和错误处理，更好地处理流式MP3数据。
         
         Args:
             mp3_data: MP3 格式的音频数据（字节流）
@@ -341,7 +342,26 @@ class ASRTTS:
             bytes: PCM 格式的音频数据（字节流），16位整数格式，单声道
                   如果转换失败则返回空字节流 b""
         """
+        # ========== 数据验证 ==========
+        if not mp3_data or len(mp3_data) < 100:
+            # MP3数据太短，可能不完整，返回空数据
+            return b""
+        
         try:
+            # ========== 验证MP3数据是否包含有效的MP3头部 ==========
+            # MP3文件通常以ID3标签或帧同步字节开始
+            if mp3_data[:3] != b'ID3' and not (mp3_data[0] == 0xFF and (mp3_data[1] & 0xE0) == 0xE0):
+                # 尝试查找MP3帧同步字节
+                found_sync = False
+                for i in range(min(100, len(mp3_data) - 1)):
+                    if mp3_data[i] == 0xFF and (mp3_data[i+1] & 0xE0) == 0xE0:
+                        mp3_data = mp3_data[i:]
+                        found_sync = True
+                        break
+                if not found_sync:
+                    logger.warning(f"MP3数据未找到有效头部，数据长度: {len(mp3_data)}")
+                    return b""
+            
             # ========== 使用 pydub 从字节流加载 MP3 数据 ==========
             audio = AudioSegment.from_file(io.BytesIO(mp3_data), format="mp3")
             
@@ -361,7 +381,8 @@ class ASRTTS:
             
             return pcm_data
         except Exception as e:
-            logger.error(f"转换MP3到PCM失败: {e}")
+            # 转换失败时，记录警告但不抛出异常，返回空数据
+            logger.debug(f"转换MP3到PCM失败: {e}, 数据长度: {len(mp3_data)}")
             return b""  # 转换失败时返回空字节流
 
     async def _create_websocket_connection(self):

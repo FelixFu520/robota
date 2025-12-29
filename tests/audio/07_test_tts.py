@@ -27,7 +27,7 @@ def text_sender(asr_tts: ASRTTS, interval: float = 0.5, count: int = 1000, stop_
         if stop_event and stop_event.is_set():
             logger.info(f"收到停止信号，已发送 {i} 条文本")
             break
-        asr_tts.put_tts_text(f"这是第 {i} 条文本")
+        asr_tts.put_tts_text(f"{i}, 这是条文本")
         time.sleep(interval)
     
     logger.info(f"文本发送完成，共发送 {i+1 if i < count else count} 条文本")
@@ -58,13 +58,15 @@ async def main():
     
     try:
         # 启动 TTS 处理器（异步任务）
+        # 注意：TTS 处理器会等待第一个文本放入队列时才建立连接
         logger.info("启动 TTS 处理器...")
         tts_task = asyncio.create_task(asr_tts.start_tts_processor())
         
-        # 等待 TTS 处理器初始化完成
-        await asyncio.sleep(1.0)
+        # 短暂等待确保 TTS 处理器任务已启动
+        await asyncio.sleep(0.1)
         
         # 启动文本发送线程（与 TTS 处理器并行工作）
+        # 第一个文本放入队列时，TTS 处理器会立即建立连接并开始处理
         logger.info("启动文本发送线程...")
         sender_thread = threading.Thread(
             target=text_sender,

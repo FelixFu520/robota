@@ -612,12 +612,12 @@ class ASRTTS:
                         if audio_data is None:
                             # 会话结束，转换并播放剩余的 MP3 数据
                             if len(mp3_buffer) > 0:
-                                logger.info(f"TTS: 会话结束,转换剩余MP3数据 {len(mp3_buffer)} bytes")
+                                # logger.info(f"TTS: 会话结束,转换剩余MP3数据 {len(mp3_buffer)} bytes")
                                 if self.tts_encoding == "mp3":
                                     pcm_data = self._convert_mp3_to_pcm(bytes(mp3_buffer), self.tts_sample_rate)
                                     if pcm_data:
                                         self.audio_device.put_playback_data(pcm_data)
-                                        logger.info(f"TTS: 添加剩余PCM数据: {len(pcm_data)} bytes")
+                                        # logger.info(f"TTS: 添加剩余PCM数据: {len(pcm_data)} bytes")
                                 mp3_buffer.clear()
                             break
                         
@@ -629,7 +629,7 @@ class ASRTTS:
                             
                             # 检查是否达到最小缓冲大小，开始播放（降低延迟）
                             if not playback_started and len(mp3_buffer) >= min_buffer_size:
-                                logger.info(f"TTS: MP3缓冲已满({len(mp3_buffer)} bytes),开始播放")
+                                # logger.info(f"TTS: MP3缓冲已满({len(mp3_buffer)} bytes),开始播放")
                                 playback_started = True
                             
                             # 批量转换策略：累积足够的 MP3 数据再转换（提高转换效率）
@@ -637,10 +637,10 @@ class ASRTTS:
                                 pcm_data = self._convert_mp3_to_pcm(bytes(mp3_buffer), self.tts_sample_rate)
                                 if pcm_data:
                                     self.audio_device.put_playback_data(pcm_data)
-                                    logger.info(f"TTS: 转换并添加PCM: {len(pcm_data)} bytes (来自{len(mp3_buffer)} MP3)")
+                                    # logger.info(f"TTS: 转换并添加PCM: {len(pcm_data)} bytes (来自{len(mp3_buffer)} MP3)")
                                     mp3_buffer.clear()
                                 else:
-                                    logger.warning(f"TTS: MP3转PCM失败")
+                                    # logger.warning(f"TTS: MP3转PCM失败")
                                     mp3_buffer.clear()
                                     
                         elif self.tts_encoding == "pcm":
@@ -648,7 +648,7 @@ class ASRTTS:
                             self.audio_device.put_playback_data(audio_data)
                             if not playback_started:
                                 playback_started = True
-                            logger.info(f"TTS: 添加PCM数据: {len(audio_data)} bytes")
+                            # logger.info(f"TTS: 添加PCM数据: {len(audio_data)} bytes")
                             
                 except Exception as e:
                     logger.error(f"TTS: 播放音频数据任务失败: {e}")

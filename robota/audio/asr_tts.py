@@ -401,7 +401,10 @@ class ASRTTS:
             websocket = await websockets.connect(
                 self.tts_endpoint, 
                 additional_headers=headers, 
-                max_size=10 * 1024 * 1024  # 最大消息大小10MB（用于接收音频数据）
+                max_size=10 * 1024 * 1024,  # 最大消息大小10MB（用于接收音频数据）
+                ping_interval=20,  # 每20秒发送一次ping保持连接活跃
+                ping_timeout=10,   # ping超时时间10秒
+                close_timeout=10  # 关闭连接超时时间10秒
             )
             # logger.info(
             #     f"TTS: 已连接到服务器, Logid: {websocket.response.headers.get('x-tt-logid', 'N/A')}",
@@ -566,22 +569,33 @@ class ASRTTS:
                 nonlocal session_finished
                 try:
                     while not session_finished:
-                        msg = await receive_message(websocket)
-                        
-                        if msg.type == MsgType.FullServerResponse:
-                            if msg.event == EventType.SessionFinished:
-                                # 会话结束，发送结束标记到队列
-                                await audio_queue.put(None)  # None 表示会话结束
-                                session_finished = True
-                                break
-                        elif msg.type == MsgType.AudioOnlyServer:
-                            # 处理音频数据消息（TTS服务返回的音频数据）
-                            if msg.payload:
-                                # 将音频数据放入队列（供播放任务消费）
-                                await audio_queue.put(msg.payload)
-                        else:
-                            # 未知消息类型，记录警告但继续处理
-                            logger.warning(f"TTS: 收到未知消息类型: {msg.type}")
+                        try:
+                            # 添加超时处理，避免长时间阻塞导致连接超时
+                            msg = await asyncio.wait_for(receive_message(websocket), timeout=30.0)
+                            
+                            if msg.type == MsgType.FullServerResponse:
+                                if msg.event == EventType.SessionFinished:
+                                    # 会话结束，发送结束标记到队列
+                                    await audio_queue.put(None)  # None 表示会话结束
+                                    session_finished = True
+                                    break
+                            elif msg.type == MsgType.AudioOnlyServer:
+                                # 处理音频数据消息（TTS服务返回的音频数据）
+                                if msg.payload:
+                                    # 将音频数据放入队列（供播放任务消费）
+                                    await audio_queue.put(msg.payload)
+                            else:
+                                # 未知消息类型，记录警告但继续处理
+                                logger.warning(f"TTS: 收到未知消息类型: {msg.type}")
+                        except asyncio.TimeoutError:
+                            # 超时后继续循环，保持连接活跃（ping会自动处理）
+                            continue
+                        except websockets.exceptions.ConnectionClosed:
+                            # WebSocket连接已关闭，退出循环
+                            logger.warning("TTS: WebSocket连接已关闭")
+                            session_finished = True
+                            await audio_queue.put(None)
+                            break
                 except Exception as e:
                     logger.error(f"TTS: 接收音频数据任务失败: {e}")
                     await audio_queue.put(None)  # 出错时也发送结束标记（通知播放任务停止）

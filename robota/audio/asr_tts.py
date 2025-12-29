@@ -196,7 +196,7 @@ class ASRTTS:
         # 返回完整的WAV文件数据（包含文件头和数据）
         return buffer.getvalue()
 
-    async def start_realtime_asr(self, duration_seconds: int = None, silence_timeout_ms: int = 800):
+    async def start_realtime_asr(self, duration_seconds: int = None, silence_timeout_ms: int = 600):
         """
         启动实时ASR（自动语音识别）识别
         
@@ -231,6 +231,7 @@ class ASRTTS:
                 # ========== 跟踪识别状态 ==========
                 last_text_time = None  # 最后一次收到识别文本的时间戳
                 accumulated_text = ""  # 累积的识别文本（ASR服务会返回完整的累积文本）
+                last_is_definite = False  # 最后一次识别结果的确定状态
                 
                 # ========== 创建超时检查任务 ==========
                 # 后台任务：定期检查是否超过静音超时时间，如果是则将结果放入队列
@@ -239,15 +240,15 @@ class ASRTTS:
                     超时检查任务
                     
                     每100ms检查一次，如果超过silence_timeout_ms没有收到新文本，
-                    且有累积文本，则将结果放入队列并重置状态。
+                    且有累积文本且is_definite为True，则将结果放入队列并重置状态。
                     """
-                    nonlocal last_text_time, accumulated_text
+                    nonlocal last_text_time, accumulated_text, last_is_definite
                     while True:
                         await asyncio.sleep(0.1)  # 每100ms检查一次（10Hz检查频率）
                         current_time = asyncio.get_event_loop().time()
                         
-                        # 如果超过静音超时时间没有收到新文本，且有累积文本，则放入队列
-                        if last_text_time is not None and accumulated_text:
+                        # 如果超过静音超时时间没有收到新文本，且有累积文本且is_definite为True，则放入队列
+                        if last_text_time is not None and accumulated_text and last_is_definite:
                             elapsed_ms = (current_time - last_text_time) * 1000
                             if elapsed_ms >= silence_timeout_ms:
                                 # 将识别结果放入队列
@@ -265,6 +266,7 @@ class ASRTTS:
                                 # 重置状态，准备接收下一段识别文本
                                 accumulated_text = ""
                                 last_text_time = None
+                                last_is_definite = False
                 
                 # 启动超时检查任务（后台运行）
                 timeout_task = asyncio.create_task(check_timeout())
@@ -285,11 +287,15 @@ class ASRTTS:
                                 text = result['text']
                                 current_time = asyncio.get_event_loop().time()
                                 
+                                # 获取识别结果的确定状态（是否为最终结果）
+                                is_definite = result.get('utterances', [{}])[0].get('definite', False) if result.get('utterances') else False
+                                
                                 # 更新累积文本（使用最新的完整文本，ASR会不断更新完整文本）
                                 accumulated_text = text
                                 last_text_time = current_time  # 更新最后收到文本的时间
+                                last_is_definite = is_definite  # 更新确定状态
                                 
-                                # logger.debug(f"收到识别文本: {text}")
+                                # logger.debug(f"收到识别文本: {text}, is_definite: {is_definite}")
                 
                 except Exception as e:
                     logger.error(f"实时ASR处理失败: {e}")
@@ -304,8 +310,8 @@ class ASRTTS:
                         # 任务正常取消，忽略异常
                         pass
                     
-                    # 如果还有未处理的文本（识别结束时可能还有文本未放入队列），放入队列
-                    if accumulated_text:
+                    # 如果还有未处理的文本（识别结束时可能还有文本未放入队列），且is_definite为True，放入队列
+                    if accumulated_text and last_is_definite:
                         result = {
                             "text": accumulated_text,
                             "chat_id": self.asr_chat_id

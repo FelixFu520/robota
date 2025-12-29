@@ -64,8 +64,8 @@ async def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="ASRTTS实时ASR测试工具")
-    parser.add_argument("--silence-timeout", type=int, default=800,
-                       help="静音超时时间(毫秒)，默认: 800")
+    parser.add_argument("--silence-timeout", type=int, default=600,
+                       help="静音超时时间(毫秒)，默认: 600")
     
     args = parser.parse_args()
     

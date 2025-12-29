@@ -13,6 +13,7 @@ import json
 import uuid
 import wave
 import io
+import os
 from pydub import AudioSegment
 
 from robota.audio.volcengine_doubao_tts import (
@@ -92,10 +93,7 @@ async def main():
     7. 清理资源并关闭连接
     """
     parser = argparse.ArgumentParser(description='豆包 TTS 测试工具')
-    parser.add_argument("--appid", default="5919896644", help="APP ID")
-    parser.add_argument("--access_token", default="G-o4lEbyzOv9F6cLu9jYhkrOegOjorqU", help="Access Token")
-    parser.add_argument("--resource_id", default="seed-tts-2.0", help="Resource ID")
-    parser.add_argument("--text", default="你好，我是地瓜君", help="Text to convert")
+    parser.add_argument("--text", default="你好，我是地瓜君，我是一个机器人，我可以帮助你完成各种任务。", help="Text to convert")
     parser.add_argument("--voice_type", default="zh_male_m191_uranus_bigtts", help="Voice type")
     parser.add_argument("--encoding", default="mp3", help="Output file encoding")
     parser.add_argument(
@@ -103,7 +101,7 @@ async def main():
         default="wss://openspeech.bytedance.com/api/v3/tts/bidirection",
         help="WebSocket endpoint URL",
     )
-    parser.add_argument("--enable_playback", action="store_true", help="Enable real-time audio playback")
+    parser.add_argument("--enable_playback", action="store_true", default=True, help="Enable real-time audio playback")
     parser.add_argument("--sample_rate", type=int, default=16000, help="Audio sample rate for playback")
 
     args = parser.parse_args()
@@ -123,11 +121,9 @@ async def main():
 
     # 构建 WebSocket 连接请求头
     headers = {
-        "X-Api-App-Key": args.appid,
-        "X-Api-Access-Key": args.access_token,
-        "X-Api-Resource-Id": (
-            args.resource_id if args.resource_id else get_resource_id(args.voice_type)
-        ),
+        "X-Api-App-Key": os.getenv("TTS_APP_KEY"),
+        "X-Api-Access-Key": os.getenv("TTS_ACCESS_KEY"),
+        "X-Api-Resource-Id": ("seed-tts-2.0"),
         "X-Api-Connect-Id": str(uuid.uuid4()),  # 生成唯一的连接 ID
     }
 

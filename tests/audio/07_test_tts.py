@@ -34,9 +34,9 @@ async def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="TTS 队列测试工具")
-    parser.add_argument("--interval", type=float, default=0.5,
-                       help="文本发送间隔（秒），默认: 0.5")
-    parser.add_argument("--count", type=int, default=300,
+    parser.add_argument("--interval", type=float, default=0.1,
+                       help="文本发送间隔（秒），默认: 0.1")
+    parser.add_argument("--count", type=int, default=1000,
                        help="发送文本数量，默认: 300")
     
     args = parser.parse_args()

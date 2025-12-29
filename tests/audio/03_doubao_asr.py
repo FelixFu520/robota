@@ -4,8 +4,8 @@
 测试豆包语音识别服务，支持文件ASR和实时录音ASR两种模式
 
 用法：
-    文件ASR: python3 test_doubao_asr.py --mode file --file /path/to/audio.wav
-    实时录音ASR: python3 test_doubao_asr.py --mode realtime --duration 10
+    文件ASR: python3 03_doubao_asr.py --mode file --file /path/to/audio.wav
+    实时录音ASR: python3 03_doubao_asr.py --mode realtime --duration 100
 """
 
 import argparse

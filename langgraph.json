@@ -1,0 +1,7 @@
+{
+    "dependencies": ["./"],
+    "graphs": {
+      "turtlesim": "./robota/agents/turtlesim.py:agent"
+    },
+    "env": ".env"
+}

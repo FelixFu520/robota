@@ -2,10 +2,13 @@
 Robot Agent Built with ROS 2 + MCP + LangChain 1.0
 
 ## 演示视频
+<div align="center">
 
-<iframe src="https://player.bilibili.com/player.html?bvid=BV16rv8BzEgk&page=1&high_quality=1&danmaku=0" width="100%" height="500" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
+[![B站视频演示](http://i1.hdslb.com/bfs/archive/ffa54d3aff63f6b91ab7b4450bfd51a108c4034a.jpg)](https://www.bilibili.com/video/BV16rv8BzEgk/)
 
-> 💡 如果视频无法显示，请 [点击这里在 Bilibili 观看](https://www.bilibili.com/video/BV16rv8BzEgk)
+**点击图片观看演示视频** | [直接访问](https://www.bilibili.com/video/BV16rv8BzEgk/)
+
+</div>
 
 ## 前提
 - System: Ubuntu 22.04-desktop

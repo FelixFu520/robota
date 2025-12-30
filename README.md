@@ -1,6 +1,9 @@
 # RobotA
 Robot Agent Built with ROS 2 + MCP + LangChain 1.0
+[![Bilibili Video](https://img.shields.io/badge/Bilibili-观看视频-00A1D6?style=for-the-badge&logo=bilibili)](https://www.bilibili.com/video/BV16rv8BzEgk)
 
+或者使用嵌入播放器（需要支持 HTML 的 Markdown 查看器）：
+<iframe src="https://player.bilibili.com/player.html?bvid=BV16rv8BzEgk&page=1&high_quality=1&danmaku=0" width="640" height="360" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
 ## 前提
 - System: Ubuntu 22.04-desktop
 - 环境管理: [uv](https://docs.astral.sh/uv/getting-started/installation/), 版本大于0.9.13
@@ -86,10 +89,10 @@ ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 ### 终端3： 启动ros-mcp-server
 ```
 cd ~/projects/ros-mcp-server
-uv run server.py --transport streamable-http --host 127.0.0.1 --port 8080
+uv run server.py --transport streamable-http --host 127.0.0.1 --port 9000
 ```
 ### 终端4： 启动测试程序
 ```
 cd ~/projects/robota
-v run tests/agent/04_test_turtlesim_mcp.py
+uv run tests/agent/04_test_turtlesim_mcp.py
 ```

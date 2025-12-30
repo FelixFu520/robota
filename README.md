@@ -1,13 +1,13 @@
 # RobotA
-```
-安装portaudio19-dev
-sudo apt-get install portaudio19-dev
-```
 Robot Agent Built with ROS 2 + MCP + LangChain 1.0
-## Prerequisites
+
+## 前提
 - System: Ubuntu 22.04-desktop
-### Install ROS 2
-office install tutorial: https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html
+- 环境管理: [uv](https://docs.astral.sh/uv/getting-started/installation/), 版本大于0.9.13
+
+## 安装
+### 安装ROS 2
+参考[官方教程](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html)
 ```
 # Set locale
 locale  # check for UTF-8
@@ -40,7 +40,7 @@ sudo apt install ros-dev-tools
 source /opt/ros/humble/setup.bash
 
 ```
-### Turtlesim demo
+### 安装Turtlesim, 并演示
 ```
 # Install turtlesim
 sudo apt update
@@ -54,9 +54,42 @@ ros2 run turtlesim turtlesim_node
 # Use turtlesim, open a new terminal and source ROS 2 again
 ros2 run turtlesim turtle_teleop_key
 ```
-## Install
+### 安装ros-mcp-server
 ```
-git clone https://github.com/FelixFu520/robota.git
-cd robota
+mkdir -p ~/projects/
+cd ~/projects/
+git clone https://github.com/robotmcp/ros-mcp-server
+cd ~/projects/ros-mcp-server
 uv sync
+```
+### 安装本项目
+```
+sudo apt-get install portaudio19-dev    # 安装portaudio19-dev
+
+cd ~/projects/
+git clone https://github.com/FelixFu520/robota.git
+cd ~/projects/robota
+uv sync
+```
+
+## 运行 Turtlesim Demo
+### 终端1： 启动 Turtlesim
+```
+source /opt/ros/humble/setup.bash
+ros2 run turtlesim turtlesim_node
+```
+### 终端2： 启动 rosbridge
+```
+source /opt/ros/humble/setup.bash
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+```
+### 终端3： 启动ros-mcp-server
+```
+cd ~/projects/ros-mcp-server
+uv run server.py --transport streamable-http --host 127.0.0.1 --port 8080
+```
+### 终端4： 启动测试程序
+```
+cd ~/projects/robota
+v run tests/agent/04_test_turtlesim_mcp.py
 ```

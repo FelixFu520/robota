@@ -1,9 +1,12 @@
 # RobotA
 Robot Agent Built with ROS 2 + MCP + LangChain 1.0
-[![Bilibili Video](https://img.shields.io/badge/Bilibili-观看视频-00A1D6?style=for-the-badge&logo=bilibili)](https://www.bilibili.com/video/BV16rv8BzEgk)
 
-或者使用嵌入播放器（需要支持 HTML 的 Markdown 查看器）：
-<iframe src="https://player.bilibili.com/player.html?bvid=BV16rv8BzEgk&page=1&high_quality=1&danmaku=0" width="640" height="360" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
+## 演示视频
+
+<iframe src="https://player.bilibili.com/player.html?bvid=BV16rv8BzEgk&page=1&high_quality=1&danmaku=0" width="100%" height="500" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
+
+> 💡 如果视频无法显示，请 [点击这里在 Bilibili 观看](https://www.bilibili.com/video/BV16rv8BzEgk)
+
 ## 前提
 - System: Ubuntu 22.04-desktop
 - 环境管理: [uv](https://docs.astral.sh/uv/getting-started/installation/), 版本大于0.9.13

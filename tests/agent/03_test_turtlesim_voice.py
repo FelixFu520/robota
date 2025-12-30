@@ -1,27 +1,65 @@
 """
-Test script for Turtlesim Agent.
+Test script for Turtlesim Agent Voice Mode.
 
-This script tests the agent locally without requiring langgraph dev.
-Run this to test the agent before deploying with langgraph dev.
+This script tests the voice interaction mode of the agent.
+Run this to test the agent's voice interaction capabilities.
 
-支持文本交互和语音交互两种模式:
-- 文本模式: 通过命令行输入文本与 Agent 交互
-- 语音模式: 通过语音输入与 Agent 交互,Agent 会语音回复
+语音交互模式:
+- 通过语音输入与 Agent 交互,Agent 会语音回复
+- 使用队列机制进行异步通信,支持实时流式处理
+- ASR识别结果自动发送给Agent,Agent回复自动转换为语音播放
 """
 import asyncio
-import os
-import time
 import argparse
-from typing import Optional
 # 在导入其他模块之前先导入 logging，确保日志配置生效
 from robota.utils import logging  # noqa: F401
 from robota.utils.logging import default_logger as logger
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools import BaseTool, StructuredTool
 
 from robota.agent.turtlesim_voice import TurtlesimAgentVoice
 from robota.mcp.math import mcp_math_path
 
+
+def _wrap_async_tool_as_sync(async_tool: BaseTool) -> BaseTool:
+    """
+    将异步工具包装为同步工具，以便在同步的 stream() 方法中使用。
+    
+    Args:
+        async_tool: 异步的 BaseTool 实例（通常是 StructuredTool）
+        
+    Returns:
+        同步的 BaseTool 实例
+    """
+    # 检查工具是否支持异步调用
+    if not hasattr(async_tool, 'ainvoke'):
+        # 如果没有 ainvoke 方法，可能是同步工具，直接返回
+        return async_tool
+    
+    # 创建同步包装函数
+    def sync_wrapper(**kwargs):
+        """同步包装器，使用 asyncio.run 执行异步工具"""
+        # 在同步上下文中，使用 asyncio.run 创建新的事件循环
+        # 这会在新的事件循环中运行异步工具
+        return asyncio.run(async_tool.ainvoke(kwargs))
+    
+    # 使用 StructuredTool.from_function 创建同步工具
+    # 获取原始工具的 args_schema
+    args_schema = None
+    if hasattr(async_tool, 'args_schema'):
+        args_schema = async_tool.args_schema
+    
+    sync_tool = StructuredTool.from_function(
+        func=sync_wrapper,
+        name=async_tool.name,
+        description=async_tool.description,
+        args_schema=args_schema,
+    )
+    
+    return sync_tool
+
 async def _get_tools():
+    """获取MCP工具并转换为同步工具"""
     mcp_client = MultiServerMCPClient({
         "math": {
             "transport": "stdio",
@@ -29,212 +67,50 @@ async def _get_tools():
             "args": [mcp_math_path],
         },
     })
-    return await mcp_client.get_tools()
+    async_tools = await mcp_client.get_tools()
+    # 将所有异步工具转换为同步工具
+    sync_tools = [_wrap_async_tool_as_sync(tool) for tool in async_tools]
+    return sync_tools
 
-async def test_text_mode(agent: TurtlesimAgentVoice):
-    """
-    测试文本交互模式.
-    
-    Args:
-        agent: TurtlesimAgent 实例
-    """
-    print("\n" + "="*60)
-    print("🤖 Turtlesim Agent (文本模式) is ready!")
-    print("="*60)
-    print("\nYou can now interact with the agent.")
-    print("Type 'exit' to quit.\n")
-    
-    # Interactive loop
-    while True:
-        try:
-            user_input = input("You: ").strip()
-            
-            if user_input.lower() in ['exit', 'quit', 'q']:
-                print("👋 Goodbye!")
-                break
-            
-            if not user_input:
-                continue
-            
-            print("\n🤖 Agent: ", end="", flush=True)
-            time_start = time.time()
-            is_first_token = True
-            
-            # 使用统一的流式输出方法，支持工具调用和普通对话
-            async for event in agent.astream_with_tools(user_input):
-                if is_first_token:
-                    print(f"Time: {time.time() - time_start:.2f} seconds ", end="", flush=True)
-                    is_first_token = False
-                
-                event_type = event["type"]
-                
-                if event_type == "token":
-                    # 实时打印每个token
-                    print(event["content"], end="", flush=True)
-                
-                elif event_type == "tool_call_start":
-                    # 显示工具调用信息
-                    print(f"\n  🔧 [调用工具: {event['tool_name']}]")
-                    print(f"     参数: {event['tool_args']}", flush=True)
-                
-                elif event_type == "tool_call_end":
-                    # 显示工具返回结果
-                    print(f"  ✅ [工具返回: {event['tool_result']}]\n🤖 Agent: ", end="", flush=True)
-                
-                elif event_type == "error":
-                    print(f"\n  ❌ 错误: {event['error']}", flush=True)
-                
-                elif event_type == "done":
-                    print("\n")
-                    break
-            
-            print("-"*60 + "\n")
-            
-        except KeyboardInterrupt:
-            print("\n👋 Goodbye!")
-            break
-        except Exception as e:
-            print(f"\n❌ Error: {e}\n")
-            import traceback
-            traceback.print_exc()
-
-async def test_voice_mode(agent: TurtlesimAgentVoice, duration: Optional[int] = None):
+async def test_voice_mode(agent: TurtlesimAgentVoice):
     """
     测试语音交互模式.
     
+    使用新的 start() 方法启动完整的语音交互流程:
+    - ASR自动识别语音并放入队列
+    - Agent自动处理队列中的文本并生成回复
+    - TTS自动将Agent回复转换为语音并播放
+    
     Args:
-        agent: TurtlesimAgent 实例
-        duration: 每次录音的时长(秒),None 表示使用静音检测模式(检测到0.8秒静音后自动结束)
+        agent: TurtlesimAgentVoice 实例
     """
     print("\n" + "="*60)
     print("🎤 Turtlesim Agent (语音模式) is ready!")
     print("="*60)
-    if duration is None:
-        print(f"\n语音交互模式已启动,使用静音检测模式(检测到0.8秒静音后自动结束)")
-    else:
-        print(f"\n语音交互模式已启动,每次录音时长: {duration} 秒")
+    print("\n语音交互模式已启动,使用静音检测模式")
+    print(f"静音超时时间: {agent.silence_timeout_ms}ms")
     print("按 Ctrl+C 退出\n")
     
-    # 启动音频流
-    agent.start_audio_streams()
-    
     try:
-        interaction_count = 0
-        while True:
-            try:
-                interaction_count += 1
-                print("\n" + "="*60)
-                print(f"📝 交互 #{interaction_count}")
-                print("="*60)
-                
-                # 完整的语音交互流程（实时打印 ASR 和 Agent 输出）
-                response = await agent.voice_interact(
-                    duration_seconds=duration,
-                    print_realtime=True
-                )
-                
-                if response:
-                    print("\n" + "="*60)
-                    print("✅ 本次交互完成")
-                    print("="*60)
-                else:
-                    print("\n" + "="*60)
-                    print("⚠️  未识别到有效语音或生成回复失败")
-                    print("="*60)
-                
-                print("\n等待下一次交互... (按 Ctrl+C 退出)")
-                await asyncio.sleep(1)
-                
-            except KeyboardInterrupt:
-                print("\n\n👋 Goodbye!")
-                break
-            except Exception as e:
-                print(f"\n❌ Error: {e}\n")
-                import traceback
-                traceback.print_exc()
-                await asyncio.sleep(1)
-    finally:
-        agent.stop_audio_streams()
-
-async def test_asr_only(agent: TurtlesimAgentVoice, duration: int = 10):
-    """
-    仅测试 ASR 功能.
-    
-    Args:
-        agent: TurtlesimAgent 实例
-        duration: 录音时长(秒)
-    """
-    print("\n" + "="*60)
-    print("🎤 ASR 测试模式")
-    print("="*60)
-    print(f"\n开始录音,时长: {duration} 秒...")
-    
-    agent.start_audio_streams()
-    
-    try:
-        text = await agent.listen_and_transcribe(duration_seconds=duration)
-        if text:
-            print(f"\n✅ 识别结果: {text}")
-        else:
-            print("\n⚠️  未识别到语音")
-    finally:
-        agent.stop_audio_streams()
-
-async def test_tts_only(agent: TurtlesimAgentVoice, text: str):
-    """
-    仅测试 TTS 功能.
-    
-    Args:
-        agent: TurtlesimAgent 实例
-        text: 要转换的文本
-    """
-    print("\n" + "="*60)
-    print("🔊 TTS 测试模式")
-    print("="*60)
-    print(f"\n正在将文本转换为语音: {text}")
-    
-    agent.start_audio_streams()
-    
-    try:
-        success = await agent.speak_and_play(text)
-        if success:
-            print("\n✅ 语音播放完成")
-        else:
-            print("\n❌ 语音播放失败")
-    finally:
-        # 等待播放完成
-        await asyncio.sleep(2)
-        agent.stop_audio_streams()
+        # 启动语音Agent,会自动处理整个语音交互流程
+        await agent.start()
+    except KeyboardInterrupt:
+        print("\n\n👋 Goodbye!")
+    except Exception as e:
+        print(f"\n❌ Error: {e}\n")
+        import traceback
+        traceback.print_exc()
 
 async def test_agent():
     """
-    主测试函数,根据命令行参数选择测试模式.
+    主测试函数.
     """
-    parser = argparse.ArgumentParser(description='Turtlesim Agent 测试工具')
+    parser = argparse.ArgumentParser(description='Turtlesim Agent 语音测试工具')
     parser.add_argument(
-        '--mode', 
-        type=str, 
-        choices=['text', 'voice', 'asr', 'tts'], 
-        default='text',
-        help='测试模式: text=文本交互, voice=语音交互, asr=仅测试ASR, tts=仅测试TTS (默认: text)'
-    )
-    def duration_type(value):
-        """将字符串转换为int或None"""
-        if value.lower() == 'none' or value == '':
-            return None
-        return int(value)
-    
-    parser.add_argument(
-        '--duration', 
-        type=duration_type,
-        default=None,
-        help='录音时长(秒),用于voice和asr模式,None或"none"表示使用静音检测模式(检测到0.8秒静音后自动结束) (默认: None)'
-    )
-    parser.add_argument(
-        '--tts-text', 
-        type=str, 
-        default='你好，我是地瓜君',
-        help='TTS测试文本,用于tts模式 (默认: 你好，我是地瓜君)'
+        '--silence-timeout', 
+        type=int,
+        default=600,
+        help='ASR静音超时时间(毫秒),默认: 600ms'
     )
     parser.add_argument(
         '--no-aec', 
@@ -250,49 +126,33 @@ async def test_agent():
     # 创建 Agent
     agent = TurtlesimAgentVoice(
         tools=tools,
+        silence_timeout_ms=args.silence_timeout,
         enable_aec=not args.no_aec
     )
     
     try:
-        # 根据模式执行相应的测试
-        if args.mode == 'text':
-            await test_text_mode(agent)
-        elif args.mode == 'voice':
-            await test_voice_mode(agent, duration=args.duration)
-        elif args.mode == 'asr':
-            await test_asr_only(agent, duration=args.duration)
-        elif args.mode == 'tts':
-            await test_tts_only(agent, text=args.tts_text)
+        # 启动语音交互测试
+        await test_voice_mode(agent)
     finally:
-        # 清理资源
-        agent.cleanup()
+        # 清理资源 (stop() 方法会在 start() 的 finally 中自动调用,这里确保资源清理)
+        await agent.stop()
         logger.info("测试完成,资源已清理")
 
 
 if __name__ == "__main__":
     asyncio.run(test_agent())
     """
-    # 文本交互模式（默认）
-    python tests/agent/turtlesim_voice.py --mode text
-
-    # 语音交互模式
-    python tests/agent/turtlesim_voice.py --mode voice --duration 1000
-
-    # 仅测试 ASR
-    python tests/agent/turtlesim_voice.py --mode asr --duration 30
-
-    # 仅测试 TTS
-    python tests/agent/turtlesim_voice.py --mode tts --tts-text "你好，我是地瓜君"
-
+    使用示例:
+    
+    # 使用默认设置启动语音交互
+    python tests/agent/03_test_turtlesim_voice.py
+    
+    # 自定义静音超时时间
+    python tests/agent/03_test_turtlesim_voice.py --silence-timeout 800
+    
     # 禁用回声消除
-    python tests/agent/turtlesim_voice.py --mode voice --no-aec
-
-    # 使用静音检测模式（默认，检测到0.8秒静音后自动结束）
-    python tests/agent/turtlesim_voice.py --mode voice
-
-    # 或者明确指定
-    python tests/agent/turtlesim_voice.py --mode voice --duration none
-
-    # 使用固定时长模式
-    python tests/agent/turtlesim_voice.py --mode voice --duration 10
+    python tests/agent/03_test_turtlesim_voice.py --no-aec
+    
+    # 组合使用
+    python tests/agent/03_test_turtlesim_voice.py --silence-timeout 1000 --no-aec
     """

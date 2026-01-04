@@ -13,7 +13,14 @@ Robot Agent Built with ROS 2 + MCP + LangChain 1.0
 ## 前提
 - System: Ubuntu 22.04-desktop
 - 环境管理: [uv](https://docs.astral.sh/uv/getting-started/installation/), 版本大于0.9.13
-
+- API KEY: 整个项目需要火山的API KEY，包括ASR，TTS，豆包，如果不清楚如何获取KEY，问火山客服
+    ```
+    export ARK_API_KEY=替换成自己的
+    export ASR_APP_KEY=替换成自己的
+    export ASR_ACCESS_KEY=替换成自己的
+    export TTS_APP_KEY=替换成自己的
+    export TTS_ACCESS_KEY=替换成自己的
+    ```
 ## 安装
 ### 安装ROS 2
 参考[官方教程](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html)
